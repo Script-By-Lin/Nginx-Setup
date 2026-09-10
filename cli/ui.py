@@ -49,6 +49,7 @@ def print_success_summary(
     config: ServerConfig,
     public_ip: str,
     target_file: str,
+    local_ip: Optional[str] = None,
 ) -> None:
     """Print formatted final output with access URLs and DNS setup instructions."""
     console.print()
@@ -59,7 +60,9 @@ def print_success_summary(
     url_table.add_column("Route Name", style="bold white")
     url_table.add_column("Path", style="yellow")
     url_table.add_column("Upstream Backend", style="magenta")
-    url_table.add_column("Access URL", style="bold green")
+    url_table.add_column("Access URL (Public / Domain)", style="bold green")
+    if local_ip and local_ip != "127.0.0.1":
+        url_table.add_column("LAN Access URL (Local Network)", style="bold cyan")
 
     for route in config.routes:
         if config.ssl_enabled and config.domain:
@@ -70,7 +73,11 @@ def print_success_summary(
             host = config.domain if config.domain else public_ip
 
         access_url = f"{proto}://{host}{route.path}"
-        url_table.add_row(route.name, route.path, route.target_url, access_url)
+        if local_ip and local_ip != "127.0.0.1":
+            lan_url = f"http://{local_ip}{route.path}"
+            url_table.add_row(route.name, route.path, route.target_url, access_url, lan_url)
+        else:
+            url_table.add_row(route.name, route.path, route.target_url, access_url)
 
     console.print(url_table)
 

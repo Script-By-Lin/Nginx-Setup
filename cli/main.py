@@ -40,6 +40,7 @@ app = typer.Typer(
 def setup(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name (e.g. fastapi-app)"),
     executable: Optional[str] = typer.Option(None, "--executable", "-e", help="Backend executable path/command"),
+    host: Optional[str] = typer.Option(None, "--host", "-H", help="Backend host/IP (e.g. 127.0.0.1, 0.0.0.0, or LAN IP)"),
     port: Optional[int] = typer.Option(None, "--port", help="Backend port number (e.g. 8000)"),
     domain: Optional[str] = typer.Option(None, "--domain", "-d", help="Domain name (optional, e.g. api.example.com)"),
     route: Optional[str] = typer.Option(None, "--route", "-r", help="Nginx route location path (default: /)"),
@@ -78,6 +79,15 @@ def setup(
         else:
             route = Prompt.ask("[bold cyan]Enter Route Path[/bold cyan] (e.g. / or /api1/)", default="/").strip()
 
+    if not host:
+        if non_interactive:
+            host = "127.0.0.1"
+        else:
+            host = Prompt.ask(
+                "[bold cyan]Enter Backend Host / IP[/bold cyan] [dim](127.0.0.1, 0.0.0.0, or LAN IP like 192.168.x.x)[/dim]",
+                default="127.0.0.1",
+            ).strip()
+
     if not port:
         if non_interactive:
             port = 8000
@@ -89,12 +99,12 @@ def setup(
         step_error(f"Invalid port: {port}. Port must be between 1 and 65535.")
         raise typer.Exit(code=1)
 
-    is_listening = PortValidator.is_port_listening(port)
+    is_listening = PortValidator.is_port_listening(port, host=host)
     if is_listening:
         proc_info = PortValidator.get_process_using_port(port)
-        step_success(f"Backend detected listening on 127.0.0.1:{port} {f'({proc_info})' if proc_info else ''}")
+        step_success(f"Backend detected listening on {host}:{port} {f'({proc_info})' if proc_info else ''}")
     else:
-        step_warn(f"No active service detected listening on port {port} yet. (Nginx will proxy once backend starts)")
+        step_warn(f"No active service detected listening on {host}:{port} yet. (Nginx will proxy once backend starts)")
 
     # Backend Executable
     if executable is None and not non_interactive:
@@ -116,7 +126,7 @@ def setup(
         RouteConfig(
             name="primary",
             path=route,
-            backend_host="127.0.0.1",
+            backend_host=host,
             backend_port=port,
             backend_executable=executable,
             websocket=True,
@@ -166,6 +176,7 @@ def setup(
 
             svc_name = Prompt.ask("  Service Name", default=f"service_{len(routes) + 1}").strip()
             svc_route = Prompt.ask("  Route Path (e.g. /api2/ or /auth/)", default=f"/api{len(routes) + 1}/").strip()
+            svc_host = Prompt.ask("  Backend Host / IP", default=host).strip()
             svc_port = IntPrompt.ask("  Backend Port", default=port + len(routes))
             svc_exe = Prompt.ask("  Backend Executable Path (optional)", default="").strip() or None
 
@@ -173,13 +184,13 @@ def setup(
                 RouteConfig(
                     name=svc_name,
                     path=svc_route,
-                    backend_host="127.0.0.1",
+                    backend_host=svc_host,
                     backend_port=svc_port,
                     backend_executable=svc_exe,
                     websocket=True,
                 )
             )
-            step_success(f"Added route: {svc_route} ➔ 127.0.0.1:{svc_port}")
+            step_success(f"Added route: {svc_route} ➔ {svc_host}:{svc_port}")
 
     # Build Server Config
     server_config = ServerConfig(
@@ -267,7 +278,8 @@ def setup(
 
     # Step F: Final Output
     public_ip = DNSHelper.get_public_ip() or "YOUR_SERVER_IP"
-    print_success_summary(config=server_config, public_ip=public_ip, target_file=target_file)
+    local_ip = DNSHelper.get_local_ip()
+    print_success_summary(config=server_config, public_ip=public_ip, target_file=target_file, local_ip=local_ip)
 
 
 @app.command(name="add-service", help="Add a new route or backend service to an existing Nginx project.")
@@ -275,6 +287,7 @@ def add_service(
     project: str = typer.Option(..., "--project", "-p", help="Target project name"),
     path: str = typer.Option(..., "--path", "-r", help="Route path (e.g. /api2/)"),
     port: int = typer.Option(..., "--port", help="Backend port number"),
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Backend target host/IP (e.g. 127.0.0.1 or LAN IP)"),
     executable: Optional[str] = typer.Option(None, "--executable", "-e", help="Backend executable path"),
     name: Optional[str] = typer.Option(None, "--name", help="Route name identifier"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without applying"),
@@ -296,7 +309,7 @@ def add_service(
     new_route = RouteConfig(
         name=route_name,
         path=path,
-        backend_host="127.0.0.1",
+        backend_host=host,
         backend_port=port,
         backend_executable=executable,
         websocket=True,
@@ -305,7 +318,7 @@ def add_service(
     # Check for duplicate route paths
     for r in project_state.routes:
         if r.path == new_route.path:
-            step_warn(f"Overwriting existing route for path '{path}' (previously pointed to :{r.backend_port})")
+            step_warn(f"Overwriting existing route for path '{path}' (previously pointed to {r.backend_host}:{r.backend_port})")
             project_state.routes.remove(r)
             break
 
@@ -331,9 +344,10 @@ def add_service(
     if apply_ok:
         project_state.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         state_mgr.save_project(project_state)
-        step_success(f"Added route '{path}' ➔ 127.0.0.1:{port} to project '{project}'.")
+        step_success(f"Added route '{path}' ➔ {host}:{port} to project '{project}'.")
         public_ip = DNSHelper.get_public_ip() or "YOUR_SERVER_IP"
-        print_success_summary(server_config, public_ip, target_file)
+        local_ip = DNSHelper.get_local_ip()
+        print_success_summary(server_config, public_ip, target_file, local_ip=local_ip)
     else:
         for log in logs:
             step_error(log)
