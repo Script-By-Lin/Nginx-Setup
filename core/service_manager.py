@@ -89,6 +89,33 @@ class ServiceManager:
 
         return False, f"Failed to reload Nginx: {res.stderr}"
 
+    def configure_selinux_for_nginx(self) -> Tuple[bool, str]:
+        """
+        Check if SELinux is in Enforcing mode, and if so, ensure httpd_can_network_connect is enabled
+        so Nginx reverse proxy connections are permitted without 502 Permission Denied errors.
+        """
+        if not is_binary_available("getenforce"):
+            return True, "SELinux not present on system."
+
+        res = run_command("getenforce")
+        if res.stdout.strip().lower() != "enforcing":
+            return True, f"SELinux status: {res.stdout.strip()} (No restriction)."
+
+        # Check if setsebool is available
+        if not is_binary_available("setsebool"):
+            return False, "SELinux is Enforcing, but setsebool utility is missing."
+
+        # Check current boolean status
+        bool_res = run_command("getsebool httpd_can_network_connect")
+        if "--> on" in bool_res.stdout:
+            return True, "SELinux boolean 'httpd_can_network_connect' is already enabled."
+
+        # Enable persistently
+        set_res = run_command("setsebool -P httpd_can_network_connect 1", sudo=True, dry_run=self.dry_run)
+        if set_res.success:
+            return True, "Enabled SELinux boolean 'httpd_can_network_connect' for Nginx reverse proxying."
+        return False, f"Failed to set SELinux boolean: {set_res.stderr}"
+
     def restart_nginx(self) -> Tuple[bool, str]:
         """Restart Nginx service."""
         if is_binary_available("systemctl"):

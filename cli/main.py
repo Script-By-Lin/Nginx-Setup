@@ -136,7 +136,7 @@ def setup(
     # 3. Domain Name
     if domain is None and not non_interactive:
         domain = Prompt.ask(
-            "[bold cyan]Enter Domain Name[/bold cyan] [dim](optional, leave empty for Public IP / default server)[/dim]",
+            "[bold cyan]Enter Domain Name[/bold cyan] [dim](optional, e.g. api.example.com - leave empty if using IP/LAN)[/dim]",
             default="",
         ).strip()
         if not domain:
@@ -148,19 +148,20 @@ def setup(
         else:
             step_success(f"Domain configured: {domain}")
 
-    # 4. SSL Setup
+    # 4. SSL Setup Prompt
     if ssl is None:
         if non_interactive:
             ssl = bool(domain)
         else:
-            if domain:
-                ssl = Confirm.ask(f"[bold cyan]Enable Let's Encrypt SSL (HTTPS) for {domain}?[/bold cyan]", default=True)
-            else:
-                ssl = False
-
-    if ssl and not domain:
-        step_warn("SSL requested without a domain name. Let's Encrypt requires a valid domain. SSL will be disabled.")
-        ssl = False
+            ssl = Confirm.ask("[bold cyan]Enable SSL (HTTPS) Certificate?[/bold cyan]", default=bool(domain))
+            if ssl and not domain:
+                domain = Prompt.ask("[bold cyan]Enter Domain Name for Let's Encrypt SSL[/bold cyan] (e.g. api.example.com)").strip()
+                if not domain or not DomainValidator.is_valid_domain(domain):
+                    step_warn("Let's Encrypt requires a valid domain name. Proceeding with HTTP only.")
+                    ssl = False
+                    domain = None
+                else:
+                    step_success(f"Domain configured for SSL: {domain}")
 
     if ssl and email is None and not non_interactive:
         email = Prompt.ask("[bold cyan]Enter Email for Let's Encrypt Renewal Notifications[/bold cyan] [dim](optional)[/dim]", default="").strip()
@@ -250,7 +251,12 @@ def setup(
             step_warn("SSL acquisition failed or skipped. Falling back to HTTP configuration.")
             server_config.ssl_enabled = False
 
-    # Step D: Apply Nginx Config (Write, Validate nginx -t, Rollback on fail, Reload)
+    # Step D: Configure SELinux (for RHEL / Rocky / CentOS / Fedora)
+    selinux_ok, selinux_msg = service_mgr.configure_selinux_for_nginx()
+    if "Enabled" in selinux_msg or "already enabled" in selinux_msg:
+        step_success(f"SELinux: {selinux_msg}")
+
+    # Step E: Apply Nginx Config (Write, Validate nginx -t, Rollback on fail, Reload)
     apply_ok, apply_logs, target_file = nginx_mgr.apply_config(server_config)
     if apply_ok:
         step_success(f"Nginx configuration written and validated: {target_file}")

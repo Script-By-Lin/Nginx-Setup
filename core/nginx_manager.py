@@ -115,9 +115,10 @@ class NginxManager:
             logs.append("Rollback completed. Original configuration restored.")
             return False, logs, target_path
 
-        logs.append("Nginx configuration syntax is valid.")
+        # 6. Ensure SELinux allows network proxying and ensure Nginx is running
+        selinux_ok, selinux_msg = self.service_manager.configure_selinux_for_nginx()
+        logs.append(f"SELinux Status: {selinux_msg}")
 
-        # 6. Ensure Nginx is running and reload
         self.service_manager.ensure_nginx_running_and_enabled()
         reload_ok, reload_msg = self.service_manager.reload_nginx()
         logs.append(f"Nginx Reload: {reload_msg}")

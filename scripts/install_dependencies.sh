@@ -116,6 +116,15 @@ else
     exit 1
 fi
 
+# Configure SELinux if on RHEL/CentOS/Rocky/Fedora
+if command -v getenforce >/dev/null 2>&1; then
+    if [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
+        log_info "SELinux is Enforcing. Enabling httpd_can_network_connect for Nginx reverse proxy..."
+        run_cmd "$SUDO setsebool -P httpd_can_network_connect 1 || true"
+        log_success "SELinux configured successfully."
+    fi
+fi
+
 # Ensure webroot certbot challenge directory exists
 log_info "Ensuring /var/www/certbot directory exists for ACME challenges..."
 run_cmd "$SUDO mkdir -p /var/www/certbot"
