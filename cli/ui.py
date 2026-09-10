@@ -99,23 +99,25 @@ def print_success_summary(
 
 
 def print_projects_table(projects: List[ProjectState]) -> None:
-    """Display list of registered projects and their routes in a Rich Table."""
+    """Display list of registered projects, codes, and their routes in a Rich Table."""
     if not projects:
         console.print("[yellow]No projects currently configured in registry.[/yellow]")
         return
 
     table = Table(title="📋 Configured Nginx Projects", border_style="cyan", show_header=True)
+    table.add_column("Project Code", style="bold green")
     table.add_column("Project Name", style="bold cyan")
-    table.add_column("Domain", style="yellow")
+    table.add_column("Domain / Host", style="yellow")
     table.add_column("SSL", style="green")
     table.add_column("Routes", style="magenta")
     table.add_column("Config File", style="white")
     table.add_column("Last Updated", style="dim")
 
     for p in projects:
-        routes_summary = ", ".join([f"{r.path} ➔ :{r.backend_port}" for r in p.routes])
-        ssl_str = "✔ Enabled" if p.ssl_enabled else "✖ Disabled"
+        routes_summary = ", ".join([f"{r.path} ➔ {r.backend_host}:{r.backend_port}" for r in p.routes])
+        ssl_str = f"✔ {p.ssl_type.title()}" if p.ssl_enabled else "✖ Disabled"
         table.add_row(
+            f"[bold green]{p.project_code}[/bold green]",
             p.project_name,
             p.domain or "(default IP)",
             ssl_str,

@@ -95,3 +95,40 @@ def test_cli_remove_dry_run():
         result = runner.invoke(app, ["remove", "test-multi-app", "--dry-run"])
         assert result.exit_code == 0
         assert "successfully decommissioned" in result.stdout
+
+
+def test_cli_enable_ssl_by_project_code_dry_run():
+    with patch("core.nginx_manager.NginxManager.test_config", return_value=CommandResult(command="nginx -t", returncode=0, stdout="ok", stderr="")):
+        # Ensure project exists
+        runner.invoke(
+            app,
+            [
+                "setup",
+                "--project", "ssl-test-app",
+                "--port", "8000",
+                "--route", "/",
+                "--dry-run",
+                "--non-interactive",
+            ],
+        )
+        # Enable SSL using project code or name
+        result = runner.invoke(
+            app,
+            [
+                "enable-ssl",
+                "--project", "ssl-test-app",
+                "--self-signed",
+                "--dry-run",
+                "--non-interactive",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "SSL successfully enabled for Project CODE" in result.stdout or "Deployment & Configuration Succeeded" in result.stdout
+
+
+def test_cli_menu_exit():
+    result = runner.invoke(app, ["menu"], input="9\n")
+    assert result.exit_code == 0
+    assert "Please select an action by number" in result.stdout
+    assert "Goodbye!" in result.stdout
+

@@ -77,6 +77,7 @@ class ServerConfig(BaseModel):
     listen_port: int = Field(default=80, ge=1, le=65535)
     ssl_listen_port: int = Field(default=443, ge=1, le=65535)
     ssl_enabled: bool = Field(default=False)
+    ssl_type: str = Field(default="letsencrypt", description="SSL provider type: letsencrypt or self-signed")
     ssl_email: Optional[str] = Field(default=None, description="Email for Let's Encrypt / Certbot")
     ssl_cert_path: Optional[str] = Field(default=None, description="Path to SSL fullchain.pem")
     ssl_key_path: Optional[str] = Field(default=None, description="Path to SSL privkey.pem")
@@ -130,6 +131,7 @@ class ServiceStatus(BaseModel):
 
 class ProjectState(BaseModel):
     """Persisted state of a configured project."""
+    project_code: str = Field(default="SE-001", description="Formatted project identifier code, e.g. SE-001")
     project_name: str
     domain: Optional[str] = None
     config_file_path: str
@@ -137,5 +139,9 @@ class ProjectState(BaseModel):
     updated_at: str
     routes: List[RouteConfig] = Field(default_factory=list)
     ssl_enabled: bool = False
+    ssl_type: str = "letsencrypt"
+    ssl_cert_path: Optional[str] = None
+    ssl_key_path: Optional[str] = None
+    ssl_email: Optional[str] = None
     listen_port: int = 80
     ssl_port: int = 443

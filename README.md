@@ -56,7 +56,7 @@ Nginx_Setup/
 │   ├── backup.py            # Timestamped backup & safe rollback manager
 │   ├── validator.py         # Network ports, executables, domains, and route validators
 │   ├── dns.py               # Public IP detection & DNS A-record resolution checker
-│   └── storage.py           # Persistent project registry state store
+│   └── storage.py           # Persistent SQLite project registry (ACID compliant, survives VM reboots)
 ├── tests/                   # Comprehensive pytest unit and integration test suite
 ├── nginx-cli                # Executable launcher script
 ├── pyproject.toml           # Python package configuration
@@ -90,8 +90,38 @@ chmod +x ./nginx-cli
 
 ## 💻 CLI Commands & Usage
 
+### 🎯 Interactive Numbered Menu Mode (Easiest)
+Simply run `./nginx-cli` without arguments (or `./nginx-cli menu`) to open the interactive menu where you can select any action by entering a number:
+
+```bash
+./nginx-cli
+```
+
+```text
+╭─────────────────────────────────────────────────────────────────╮
+│ ⚡ Nginx + SSL DevOps Automation Suite ⚡                       │
+│ Production-Grade Reverse Proxy, Certbot SSL, & Firewall Manager │
+╰─────────────────────────────────────────────────────────────────╯
+
+Please select an action by number:
+
+  1. 🚀 Setup New Reverse Proxy (Interactive Wizard)
+  2. ➕ Add Service / Route (Append route to existing project)
+  3. 🔒 Enable / Upgrade SSL for Project (by Project CODE: SE-001)
+  4. 📋 List Registered Projects & Routes
+  5. 🩺 System Status & Diagnostics
+  6. 🔍 Preview Nginx Configuration (Dry-run)
+  7. 🧪 Test Nginx Configuration Syntax (nginx -t)
+  8. 🗑️  Remove / Decommission a Project
+  9. ❌ Exit
+
+Enter option number [1-9]: 3
+```
+
+---
+
 ### 1. Interactive Setup Wizard (`setup`)
-Run the interactive wizard to set up an Nginx reverse proxy with SSL and firewall rules:
+Run the interactive wizard directly:
 ```bash
 ./nginx-cli setup
 ```
@@ -99,7 +129,7 @@ Run the interactive wizard to set up an Nginx reverse proxy with SSL and firewal
 #### Non-Interactive / Scripted Mode
 Automate deployments with flags:
 ```bash
-# Domain with SSL
+# Domain with Let's Encrypt SSL
 sudo ./nginx-cli setup \
   --project fastapi-prod \
   --domain api.example.com \
@@ -109,7 +139,17 @@ sudo ./nginx-cli setup \
   --email admin@example.com \
   --non-interactive
 
-# IP-Only / Local Proxy (without SSL)
+# Public IP / LAN IP with Self-Signed SSL (HTTPS on port 443)
+sudo ./nginx-cli setup \
+  --project ip-app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --route / \
+  --ssl \
+  --self-signed \
+  --non-interactive
+
+# IP-Only / Local Proxy (HTTP only, without SSL)
 sudo ./nginx-cli setup \
   --project internal-app \
   --port 8001 \
@@ -124,22 +164,37 @@ sudo ./nginx-cli setup \
 Append another backend service or route prefix to an existing project configuration:
 ```bash
 sudo ./nginx-cli add-service \
-  --project fastapi-prod \
+  --project SE-001 \
   --path /api2/ \
   --port 8002
 ```
 
 ---
 
-### 3. List Registered Projects (`list`)
-View all configured projects, active domains, routes, and SSL statuses:
+### 3. Enable or Upgrade SSL for Existing Project (`enable-ssl`)
+Enable SSL (Let's Encrypt or Self-Signed IP certificate) for an already deployed project using its **Project CODE** (e.g. `SE-001`) or project name:
+```bash
+# Interactive mode (prompts for Project CODE and SSL provider)
+sudo ./nginx-cli enable-ssl
+
+# Scripted mode with Let's Encrypt
+sudo ./nginx-cli enable-ssl --project SE-001 --domain api.example.com --email admin@example.com --non-interactive
+
+# Scripted mode with Self-Signed IP SAN certificate
+sudo ./nginx-cli enable-ssl --project SE-001 --self-signed --non-interactive
+```
+
+---
+
+### 4. List Registered Projects (`list`)
+View all configured projects with their **Project CODE** (`SE-001`, `SE-002`, ...), active domains, routes, and SSL statuses:
 ```bash
 ./nginx-cli list
 ```
 
 ---
 
-### 4. System Diagnostics & Status (`status`)
+### 5. System Diagnostics & Status (`status`)
 Inspect OS distribution, package manager, Nginx systemd service status, firewall status, and public IP:
 ```bash
 ./nginx-cli status

@@ -25,3 +25,13 @@ def test_dry_run_certificate_request():
         assert ok is True
         assert cert == "/etc/letsencrypt/live/example.com/fullchain.pem"
         assert key == "/etc/letsencrypt/live/example.com/privkey.pem"
+
+
+def test_generate_ip_self_signed_cert():
+    ssl_mgr = SSLManager(dry_run=True)
+    ok, logs, cert, key = ssl_mgr.generate_ip_self_signed_cert(
+        ip_address="192.168.1.150", project_name="lan_app"
+    )
+    assert ok is True
+    assert "lan_app_selfsigned.crt" in cert
+    assert "lan_app_selfsigned.key" in key

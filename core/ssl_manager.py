@@ -101,6 +101,69 @@ class SSLManager:
         logs.append(f"Certificate successfully obtained for {clean_domain}!")
         return True, logs, cert_path, key_path
 
+    def generate_ip_self_signed_cert(
+        self,
+        ip_address: str,
+        project_name: str,
+        days: int = 365,
+        cert_dir: str = "/etc/ssl/certs",
+        key_dir: str = "/etc/ssl/private",
+    ) -> Tuple[bool, List[str], Optional[str], Optional[str]]:
+        """
+        Generate a self-signed SSL certificate with IP Subject Alternative Name (SAN).
+        Allows HTTPS on Port 443 directly via Public IP or LAN IP (e.g. https://1.2.3.4 or https://192.168.x.x).
+        """
+        logs = []
+        clean_ip = ip_address.strip()
+        cert_path = f"{cert_dir}/{project_name}_selfsigned.crt"
+        key_path = f"{key_dir}/{project_name}_selfsigned.key"
+
+        if not is_binary_available("openssl"):
+            return False, ["OpenSSL binary is not installed on this system."], None, None
+
+        if not self.dry_run:
+            Path(cert_dir).mkdir(parents=True, exist_ok=True)
+            Path(key_dir).mkdir(parents=True, exist_ok=True)
+            if not is_root():
+                run_command(["mkdir", "-p", cert_dir, key_dir], sudo=True)
+
+        # Build openssl command with IP Subject Alternative Name (SAN)
+        cmd = [
+            "openssl", "req", "-x509", "-nodes",
+            "-days", str(days),
+            "-newkey", "rsa:2048",
+            "-keyout", key_path,
+            "-out", cert_path,
+            "-subj", f"/CN={clean_ip}",
+            "-addext", f"subjectAltName=IP:{clean_ip}",
+        ]
+
+        cmd_str = " ".join(cmd)
+        logs.append(f"Generating IP Self-Signed SSL Certificate: {cmd_str}")
+
+        res = run_command(cmd, sudo=True, dry_run=self.dry_run, timeout=60)
+        if not res.success:
+            # Fallback for OpenSSL versions that might not support -addext
+            fallback_cmd = [
+                "openssl", "req", "-x509", "-nodes",
+                "-days", str(days),
+                "-newkey", "rsa:2048",
+                "-keyout", key_path,
+                "-out", cert_path,
+                "-subj", f"/CN={clean_ip}",
+            ]
+            res_fb = run_command(fallback_cmd, sudo=True, dry_run=self.dry_run, timeout=60)
+            if not res_fb.success:
+                logs.append(f"OpenSSL certificate generation failed: {res_fb.stderr}")
+                return False, logs, None, None
+
+        if not self.dry_run:
+            run_command(["chmod", "600", key_path], sudo=True)
+            run_command(["chmod", "644", cert_path], sudo=True)
+
+        logs.append(f"Self-signed SSL certificate generated for IP {clean_ip}!")
+        return True, logs, cert_path, key_path
+
     def test_auto_renewal(self) -> Tuple[bool, str]:
         """Test Certbot renewal mechanism with --dry-run."""
         res = run_command("certbot renew --dry-run", sudo=True, dry_run=self.dry_run)
