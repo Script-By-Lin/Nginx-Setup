@@ -110,12 +110,13 @@ Please select an action by number:
   3. 🔒 Enable / Upgrade SSL for Project (by Project CODE: SE-001)
   4. 📋 List Registered Projects & Routes
   5. 🩺 System Status & Diagnostics
-  6. 🔍 Preview Nginx Configuration (Dry-run)
-  7. 🧪 Test Nginx Configuration Syntax (nginx -t)
-  8. 🗑️  Remove / Decommission a Project
-  9. ❌ Exit
+  6. 🔍 Inspect Active Nginx Virtual Hosts & Ports (nginx.conf & conf.d)
+  7. 🔍 Preview Nginx Configuration (Dry-run)
+  8. 🧪 Test Nginx Configuration Syntax (nginx -t)
+  9. 🗑️  Remove / Decommission a Project
+  10. ❌ Exit
 
-Enter option number [1-9]: 3
+Enter option number [1-10]: 6
 ```
 
 ---
@@ -195,14 +196,22 @@ View all configured projects with their **Project CODE** (`SE-001`, `SE-002`, ..
 ---
 
 ### 5. System Diagnostics & Status (`status`)
-Inspect OS distribution, package manager, Nginx systemd service status, firewall status, public IP, and scan all active Nginx virtual hosts and listening ports across `/etc/nginx/nginx.conf` and `conf.d/`:
+Inspect OS distribution, package manager, Nginx systemd service status, firewall status, and public IP:
 ```bash
 ./nginx-cli status
 ```
 
 ---
 
-### 6. Preview Configuration (`preview`)
+### 6. Inspect Active Nginx Virtual Hosts & Ports (`inspect`)
+Deep scan `/etc/nginx/nginx.conf` and `conf.d/*.conf`, detecting all listening ports, server names, and upstream proxy routes:
+```bash
+./nginx-cli inspect
+```
+
+---
+
+### 7. Preview Configuration (`preview`)
 Preview generated Nginx configurations with syntax highlighting without touching `/etc/nginx`:
 ```bash
 ./nginx-cli preview --project demo --domain api.demo.com --port 8000 --route / --ssl
@@ -210,7 +219,7 @@ Preview generated Nginx configurations with syntax highlighting without touching
 
 ---
 
-### 7. Test Nginx Syntax (`test-config`)
+### 8. Test Nginx Syntax (`test-config`)
 Run `nginx -t` validation with structured output:
 ```bash
 ./nginx-cli test-config
@@ -218,8 +227,8 @@ Run `nginx -t` validation with structured output:
 
 ---
 
-### 8. Remove Project (`remove`)
-Safely decommission a virtual host by **Project CODE** (e.g. `SE-001`) or project name. Deletes all configuration files, cleans up symlinks, reloads Nginx, completely removes the entry from the SQLite database, and reports remaining active Nginx ports:
+### 9. Remove Project (`remove`)
+Safely decommission a virtual host by **Project CODE** (e.g. `SE-001`) or project name. Deletes all configuration files, cleans up symlinks, reloads Nginx, and completely removes the entry from the SQLite database:
 ```bash
 # Remove by Project CODE
 sudo ./nginx-cli remove SE-001

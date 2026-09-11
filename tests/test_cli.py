@@ -122,13 +122,15 @@ def test_cli_remove_by_project_code_dry_run():
         remove_res = runner.invoke(app, ["remove", proj_code, "--dry-run"])
         assert remove_res.exit_code == 0
         assert "successfully decommissioned" in remove_res.stdout
-        assert "Active System Nginx Inspection & Port Status" in remove_res.stdout
 
         # 4. Verify project is completely deleted from registry
         assert state_mgr.get_project("code-del-app") is None
         assert state_mgr.get_project(proj_code) is None
 
 
+def test_cli_inspect():
+    result = runner.invoke(app, ["inspect"])
+    assert result.exit_code == 0
 
 
 def test_cli_enable_ssl_by_project_code_dry_run():
@@ -161,8 +163,9 @@ def test_cli_enable_ssl_by_project_code_dry_run():
 
 
 def test_cli_menu_exit():
-    result = runner.invoke(app, ["menu"], input="9\n")
+    result = runner.invoke(app, ["menu"], input="10\n")
     assert result.exit_code == 0
     assert "Please select an action by number" in result.stdout
     assert "Goodbye!" in result.stdout
+
 

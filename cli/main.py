@@ -572,30 +572,26 @@ def remove_project(
 
     step_success(f"Project '{project}' successfully decommissioned and removed from database.")
 
-    # 4. Scan system Nginx configs (nginx.conf and conf.d) and report detected listening ports
+
+@app.command(name="inspect", help="Deep scan and inspect active Nginx virtual hosts, listening ports, and proxy targets in nginx.conf and conf.d.")
+def inspect_configs():
+    """Scan /etc/nginx/nginx.conf, conf.d/, sites-enabled/, and detect all active ports."""
+    print_banner()
+    os_info = OSDetector().detect()
+    inspector = NginxInspector(root_conf_dir=os_info.nginx_conf_dir if os.path.exists(os_info.nginx_conf_dir) else "/etc/nginx")
     scan = inspector.scan_all_configs()
-    console.print("\n[bold cyan]🔍 Active System Nginx Inspection & Port Status:[/bold cyan]")
+    print_nginx_inspection_table(scan)
+
+    # Also detect listening network sockets
     if scan.all_listening_ports:
-        ports_str = ", ".join(f"[bold green]{p}[/bold green]" for p in scan.all_listening_ports)
-        step_info(f"Detected active Nginx listening ports in nginx.conf / conf.d: {ports_str}")
-    else:
-        step_info("No other custom listening ports found in Nginx configs.")
-
-    if scan.virtual_hosts:
-        console.print(f"  [dim]Active virtual host files remaining: {len(scan.virtual_hosts)} file(s)[/dim]")
-        for vh in scan.virtual_hosts[:4]:
-            sn = ", ".join(vh.server_names) if vh.server_names else "_"
-            console.print(f"    • [cyan]{vh.file_path}[/cyan] (Ports: {vh.listen_ports}, Server: {sn})")
-
-    # 5. Check freed backend ports
-    if ports_used:
-        for p in ports_used:
+        console.print("\n[bold cyan]🔌 Network Port Listening Status:[/bold cyan]")
+        for p in scan.all_listening_ports:
             is_listening = PortValidator.is_port_listening(p)
             proc = PortValidator.get_process_using_port(p)
             if is_listening:
-                step_info(f"Port {p} is currently active on system: {proc or 'running service'}")
+                step_success(f"Port {p} is actively listening {f'({proc})' if proc else ''}")
             else:
-                step_info(f"Backend port {p} is free / idle.")
+                step_info(f"Port {p} configured in Nginx (socket idle or waiting for traffic)")
 
 
 @app.command(name="enable-ssl", help="Enable or upgrade SSL for an existing project by Project Code (e.g. SE-001) or name.")
@@ -768,12 +764,13 @@ def interactive_menu():
         console.print("  [bold cyan]3.[/bold cyan] 🔒 [bold]Enable / Upgrade SSL for Project[/bold] [dim](by Project CODE: SE-001)[/dim]")
         console.print("  [bold cyan]4.[/bold cyan] 📋 [bold]List Registered Projects & Routes[/bold]")
         console.print("  [bold cyan]5.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
-        console.print("  [bold cyan]6.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
-        console.print("  [bold cyan]7.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
-        console.print("  [bold cyan]8.[/bold cyan] 🗑️  [bold]Remove / Decommission a Project[/bold]")
-        console.print("  [bold cyan]9.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
+        console.print("  [bold cyan]6.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
+        console.print("  [bold cyan]7.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
+        console.print("  [bold cyan]8.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
+        console.print("  [bold cyan]9.[/bold cyan] 🗑️  [bold]Remove / Decommission a Project[/bold]")
+        console.print("  [bold cyan]10.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
 
-        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-9]", default="1").strip()
+        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-10]", default="1").strip()
 
         if choice == "1":
             setup(dry_run=False, non_interactive=False)
@@ -815,6 +812,10 @@ def interactive_menu():
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "6":
+            inspect_configs()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                break
+        elif choice == "7":
             proj = Prompt.ask("Project name", default="demo-app").strip()
             dom = Prompt.ask("Domain (optional, leave empty for IP)", default="").strip() or None
             pt = IntPrompt.ask("Backend port", default=8000)
@@ -823,11 +824,11 @@ def interactive_menu():
             preview(project=proj, domain=dom, port=pt, route=rt, ssl=use_ssl)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "7":
+        elif choice == "8":
             test_config()
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "8":
+        elif choice == "9":
             state_mgr = StateManager()
             projects = state_mgr.list_projects()
             if not projects:
@@ -845,11 +846,11 @@ def interactive_menu():
             if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
                 remove_project(project=target_rem, dry_run=False)
             break
-        elif choice in ("9", "0", "exit", "q", "quit"):
+        elif choice in ("10", "0", "exit", "q", "quit"):
             console.print("[yellow]Goodbye![/yellow]")
             break
         else:
-            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 9.")
+            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 10.")
 
 
 @app.callback(invoke_without_command=True)
