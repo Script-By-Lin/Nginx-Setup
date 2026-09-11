@@ -88,7 +88,7 @@ def test_cli_add_service_dry_run():
             ],
         )
         assert result.exit_code == 0
-        assert "Added route '/api2/'" in result.stdout or "Deployment & Configuration Succeeded" in result.stdout
+        assert "successfully added to Project CODE" in result.stdout or "Route '/api2/'" in result.stdout or "Deployment & Configuration Succeeded" in result.stdout
 
 
 def test_cli_remove_dry_run():
@@ -185,7 +185,19 @@ def test_cli_service_lifecycle():
     assert list_res.exit_code == 0
     assert "fastapi-unit" in list_res.stdout
 
-    # 3. Remove service
+    # 3. Control service
+    ctrl_res = runner.invoke(
+        app,
+        [
+            "service-control",
+            "--service", "fastapi-unit",
+            "--action", "restart",
+            "--dry-run",
+        ],
+    )
+    assert ctrl_res.exit_code == 0
+
+    # 4. Remove service
     rem_res = runner.invoke(
         app,
         [
@@ -200,10 +212,11 @@ def test_cli_service_lifecycle():
 
 
 def test_cli_menu_exit():
-    result = runner.invoke(app, ["menu"], input="13\n")
+    result = runner.invoke(app, ["menu"], input="14\n")
     assert result.exit_code == 0
     assert "Please select an action by number" in result.stdout
     assert "Goodbye!" in result.stdout
+
 
 
 

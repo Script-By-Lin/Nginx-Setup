@@ -128,3 +128,23 @@ def test_service_manager_control():
         ok, out = mgr.control_systemd_service("fastapi", "restart")
         assert ok is True
         assert "restart" in out
+
+
+def test_systemd_config_with_option_info():
+    import typer
+    # Simulates Typer passing OptionInfo default objects when called directly in Python
+    cfg = SystemdServiceConfig(
+        service_name=typer.Option("my-api", help="help"),
+        description=typer.Option("My API Service", help="help"),
+        user=typer.Option("nginx", help="help"),
+        working_dir=typer.Option("/home/user", help="help"),
+        exec_start=typer.Option("/usr/bin/python3 app.py", help="help"),
+        restart=typer.Option("always", help="help"),
+    )
+    assert cfg.service_name == "my-api"
+    assert cfg.description == "My API Service"
+    assert cfg.user == "nginx"
+    assert cfg.working_dir == "/home/user"
+    assert cfg.exec_start == "/usr/bin/python3 app.py"
+    assert cfg.restart == "always"
+

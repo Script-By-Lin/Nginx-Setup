@@ -6,6 +6,7 @@ import sys
 from typing import List, Optional
 import typer
 from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.table import Table
 
 from cli.ui import (
     console,
@@ -15,6 +16,7 @@ from cli.ui import (
     print_projects_table,
     print_success_summary,
     print_systemd_services_table,
+    print_unit_preview,
     step_error,
     step_info,
     step_success,
@@ -60,6 +62,36 @@ def _normalize_bool(val: object, default: bool = False) -> bool:
     return default
 
 
+def _normalize_str(val: object, default: Optional[str] = None) -> Optional[str]:
+    """Safely convert Typer OptionInfo or raw string to a Python str or None."""
+    if isinstance(val, str):
+        return val
+    try:
+        from typer.models import OptionInfo
+        if isinstance(val, OptionInfo):
+            if isinstance(val.default, str):
+                return val.default
+            return default
+    except Exception:
+        pass
+    return default
+
+
+def _normalize_int(val: object, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert Typer OptionInfo or raw int to an int or None."""
+    if isinstance(val, int) and not isinstance(val, bool):
+        return val
+    try:
+        from typer.models import OptionInfo
+        if isinstance(val, OptionInfo):
+            if isinstance(val.default, int) and not isinstance(val.default, bool):
+                return val.default
+            return default
+    except Exception:
+        pass
+    return default
+
+
 @app.command(name="setup", help="Interactively configure and deploy Nginx reverse proxy with SSL and Firewall rules.")
 def setup(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name (e.g. fastapi-app)"),
@@ -75,11 +107,18 @@ def setup(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively with provided flags"),
 ):
     """Guided wizard to set up Nginx reverse proxy, Certbot SSL, firewall, and multi-service routing."""
+    project = _normalize_str(project)
+    executable = _normalize_str(executable)
+    host = _normalize_str(host)
+    port = _normalize_int(port)
+    domain = _normalize_str(domain)
+    route = _normalize_str(route)
+    email = _normalize_str(email)
     dry_run = _normalize_bool(dry_run, default=False)
     non_interactive = _normalize_bool(non_interactive, default=False)
     self_signed = _normalize_bool(self_signed, default=False)
     if not isinstance(ssl, bool):
-        ssl = None
+        ssl = _normalize_bool(ssl, default=False) if ssl is not None else None
 
     print_banner()
 
@@ -367,6 +406,12 @@ def add_service(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without applying"),
 ):
     """Appends a new route to an existing project configuration."""
+    project = _normalize_str(project) or ""
+    path = _normalize_str(path) or "/"
+    port = _normalize_int(port) or 8000
+    host = _normalize_str(host, default="127.0.0.1") or "127.0.0.1"
+    executable = _normalize_str(executable)
+    name = _normalize_str(name)
     dry_run = _normalize_bool(dry_run, default=False)
     print_banner()
     state_mgr = StateManager()
@@ -412,54 +457,61 @@ def add_service(
         listen_port=project_state.listen_port,
         ssl_listen_port=project_state.ssl_port,
         ssl_enabled=project_state.ssl_enabled,
+        ssl_type=project_state.ssl_type,
+        ssl_cert_path=project_state.ssl_cert_path,
+        ssl_key_path=project_state.ssl_key_path,
+        ssl_email=project_state.ssl_email,
+        ssl_redirect=project_state.ssl_enabled,
         routes=project_state.routes,
     )
 
-    apply_ok, logs, target_file = nginx_mgr.apply_config(server_config)
-    if apply_ok:
-        project_state.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        state_mgr.save_project(project_state)
-        step_success(f"Added route '{path}' ➔ {host}:{port} to project '{project}'.")
-        public_ip = DNSHelper.get_public_ip() or "YOUR_SERVER_IP"
-        local_ip = DNSHelper.get_local_ip()
-        print_success_summary(server_config, public_ip, target_file, local_ip=local_ip)
-    else:
+    ok, logs, target_file = nginx_mgr.apply_config(server_config)
+    if not ok:
         for log in logs:
             step_error(log)
         raise typer.Exit(code=1)
 
+    # Update database
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    project_state.updated_at = now_str
+    state_mgr.save_project(project_state)
 
-@app.command(name="list", help="List all configured projects, routes, domains, and SSL status.")
+    step_success(f"Route '{path}' pointing to {host}:{port} successfully added to Project CODE: [bold green]{project_state.project_code}[/bold green] ({project_state.project_name}).")
+    for log in logs:
+        if "written" in log or "reloaded" in log:
+            step_success(log)
+
+
+@app.command(name="list", help="List all configured Nginx reverse proxy projects, codes, and routes.")
 def list_projects():
-    """List all registered projects and routes."""
+    """Display registered projects and their configurations from SQLite."""
     print_banner()
     state_mgr = StateManager()
     projects = state_mgr.list_projects()
     print_projects_table(projects)
 
 
-@app.command(name="status", help="Show system status, OS, Nginx service state, firewall rules, and IPs.")
+@app.command(name="status", help="Show system, firewall, package manager, and Nginx status diagnostics.")
 def status():
-    """Show comprehensive status of OS, Nginx service, firewall, IP, and active Nginx virtual hosts."""
+    """Display system diagnostics, Nginx version, service state, firewall, and ports."""
     print_banner()
     os_info = OSDetector().detect()
-    service_status = ServiceManager().get_nginx_status()
     firewall_info = FirewallManager().detect_firewall()
+    service_status = ServiceManager().get_nginx_status()
     public_ip = DNSHelper.get_public_ip()
     local_ip = DNSHelper.get_local_ip()
 
-    from rich.table import Table
-    table = Table(title="🔍 System & Environment Diagnostics", border_style="cyan")
-    table.add_column("Component", style="bold cyan")
-    table.add_column("Status / Value", style="white")
+    table = Table(title="🩺 System & Environment Diagnostics", border_style="cyan", show_header=True)
+    table.add_column("Property", style="bold white")
+    table.add_column("Detected Value", style="yellow")
 
-    table.add_row("Operating System", f"{os_info.pretty_name} ({os_info.family.value})")
+    table.add_row("Operating System", f"{os_info.pretty_name} (Family: {os_info.family.value})")
     table.add_row("Package Manager", os_info.package_manager.value)
-    table.add_row("Nginx Config Dir", os_info.nginx_conf_dir)
+    table.add_row("Nginx Conf Directory", os_info.nginx_conf_dir)
     table.add_row("Service Manager", os_info.service_manager)
     table.add_row(
-        "Nginx Installed",
-        "[bold green]Yes[/bold green]" if service_status.is_installed else "[bold red]No[/bold red]",
+        "Nginx Version",
+        service_status.version or ("[bold red]Not Installed[/bold red]" if not service_status.is_installed else "Installed"),
     )
     table.add_row(
         "Nginx Running",
@@ -494,6 +546,10 @@ def preview(
     ssl: bool = typer.Option(False, "--ssl/--no-ssl", help="Simulate SSL enabled"),
 ):
     """Renders the template and displays syntax-highlighted output."""
+    project = _normalize_str(project, default="demo-app") or "demo-app"
+    domain = _normalize_str(domain)
+    port = _normalize_int(port, default=8000) or 8000
+    route = _normalize_str(route, default="/") or "/"
     ssl = _normalize_bool(ssl, default=False)
     print_banner()
     nginx_mgr = NginxManager(dry_run=True)
@@ -539,6 +595,7 @@ def remove_project(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate removal"),
 ):
     """Remove a virtualhost configuration by Project Code or name, delete state, and reload Nginx."""
+    project = _normalize_str(project) or str(project)
     dry_run = _normalize_bool(dry_run, default=False)
     print_banner()
     state_mgr = StateManager()
@@ -610,6 +667,9 @@ def enable_ssl(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively with provided flags"),
 ):
     """Enable or reconfigure SSL certificate on an existing project by Project Code (e.g. SE-001) or name."""
+    project = _normalize_str(project)
+    domain = _normalize_str(domain)
+    email = _normalize_str(email)
     dry_run = _normalize_bool(dry_run, default=False)
     non_interactive = _normalize_bool(non_interactive, default=False)
     self_signed = _normalize_bool(self_signed, default=False)
@@ -635,74 +695,93 @@ def enable_ssl(
                 ssl_status = f"[green]✔ {p.ssl_type.title()}[/green]" if p.ssl_enabled else "[yellow]✖ Disabled[/yellow]"
                 console.print(
                     f"  [bold cyan]{idx}.[/bold cyan] Project CODE: [bold green]{p.project_code}[/bold green] | "
-                    f"[bold white]{p.project_name}[/bold white] (Host: {p.domain or 'IP'}, SSL: {ssl_status})"
+                    f"[bold white]{p.project_name}[/bold white] "
+                    f"({p.domain or 'Default IP'}) - SSL: {ssl_status}"
                 )
-            console.print()
-            default_code = projects[0].project_code
-            proj_choice = Prompt.ask(
-                "[bold cyan]Enter Project CODE (e.g. SE-001) or Project Name[/bold cyan]",
-                default=default_code,
+
+            choice = Prompt.ask(
+                "\n[bold cyan]Enter Project CODE (e.g. SE-001), name, or number[/bold cyan]",
+                default=projects[0].project_code,
             ).strip()
-            project = proj_choice
 
-    project_state = state_mgr.get_project(project)
-    if not project_state:
-        step_error(f"Project '{project}' not found in registry. Run 'nginx-cli list' to see valid project codes.")
-        raise typer.Exit(code=1)
+            target_obj = state_mgr.get_project(choice)
+            if target_obj:
+                project_state = target_obj
+                project = project_state.project_code
+            else:
+                step_error(f"Project '{choice}' not found in registry.")
+                raise typer.Exit(code=1)
+    else:
+        project_state = state_mgr.get_project(project)
+        if not project_state:
+            step_error(f"Project '{project}' not found in registry. Use 'nginx-cli list' to see available projects.")
+            raise typer.Exit(code=1)
 
-    step_info(f"Configuring SSL for Project CODE: [bold green]{project_state.project_code}[/bold green] ({project_state.project_name})")
+    step_info(f"Targeting Project CODE: [bold green]{project_state.project_code}[/bold green] ({project_state.project_name})")
 
-    # SSL Provider Choice
-    ssl_mgr = SSLManager(dry_run=dry_run)
-    firewall_mgr = FirewallManager(dry_run=dry_run)
-    nginx_mgr = NginxManager(dry_run=dry_run)
-
+    # Determine SSL provider
     ssl_type = "self-signed" if self_signed else "letsencrypt"
-    target_domain = domain or project_state.domain
+    if not non_interactive and not self_signed:
+        console.print("\n[bold cyan]Select SSL Certificate Provider:[/bold cyan]")
+        console.print("  [bold cyan]1.[/bold cyan] Let's Encrypt (Automated Free Certbot SSL - Requires Public Domain A-Record)")
+        console.print("  [bold cyan]2.[/bold cyan] OpenSSL IP SAN Self-Signed (For Public IP, LAN IP, or Internal Testing)")
 
-    if not non_interactive:
-        console.print("\n[bold cyan]Select SSL Configuration Type:[/bold cyan]")
-        console.print("  [bold]1.[/bold] 🌐 [bold]Let's Encrypt SSL[/bold] (Trusted, Auto-renewing for domain)")
-        console.print("  [bold]2.[/bold] 🔒 [bold]Self-Signed SSL for Public / LAN IP[/bold] (OpenSSL with SAN IP)")
-
-        default_choice = "2" if not target_domain else "1"
-        choice = Prompt.ask("Choose SSL option", choices=["1", "2"], default=default_choice)
-
-        if choice == "1":
-            ssl_type = "letsencrypt"
-            if not target_domain:
-                target_domain = Prompt.ask("Enter Domain Name for Let's Encrypt (e.g. api.example.com)").strip()
-                if not DomainValidator.is_valid_domain(target_domain):
-                    step_warn("Invalid domain syntax. Falling back to Self-Signed IP SSL.")
-                    ssl_type = "self-signed"
-                    target_domain = None
-            if ssl_type == "letsencrypt" and not email:
-                email = Prompt.ask("[bold cyan]Enter Email for Renewal Notifications[/bold cyan] [dim](optional)[/dim]", default="").strip() or None
-        else:
+        ssl_choice = Prompt.ask("Enter option number [1-2]", default="1").strip()
+        if ssl_choice == "2":
             ssl_type = "self-signed"
+            self_signed = True
+        else:
+            ssl_type = "letsencrypt"
 
-    # Provision Certificate
+    target_domain = domain or project_state.domain
+    if ssl_type == "letsencrypt":
+        if not target_domain:
+            if non_interactive:
+                step_error("Let's Encrypt requires a domain name (--domain).")
+                raise typer.Exit(code=1)
+            target_domain = Prompt.ask("[bold cyan]Enter Domain Name for SSL[/bold cyan] (e.g. api.example.com)").strip()
+
+        valid_dom, dom_msg = DomainValidator.validate_domain(target_domain)
+        if not valid_dom:
+            step_error(f"Invalid domain: {dom_msg}")
+            raise typer.Exit(code=1)
+
+        if not email:
+            if not non_interactive:
+                email = Prompt.ask("[bold cyan]Enter Email for Certbot renewal notifications[/bold cyan] [dim](optional)[/dim]", default="").strip() or None
+
+    ssl_mgr = SSLManager(dry_run=dry_run)
+    nginx_mgr = NginxManager(dry_run=dry_run)
+    firewall_mgr = FirewallManager(dry_run=dry_run)
+
     cert_path = None
     key_path = None
 
     if ssl_type == "self-signed":
-        target_ip = target_domain or DNSHelper.get_public_ip() or DNSHelper.get_local_ip() or "127.0.0.1"
-        step_info(f"Generating Self-Signed SSL Certificate with IP SAN for {target_ip}...")
+        ip_target = target_domain or DNSHelper.get_public_ip() or "127.0.0.1"
+        step_info(f"Generating OpenSSL Self-Signed Certificate with IP SAN for '{ip_target}'...")
         cert_ok, cert_logs, cert_path, key_path = ssl_mgr.generate_ip_self_signed_cert(
-            ip_address=target_ip, project_name=project_state.project_name
+            ip_address=ip_target,
+            project_name=project_state.project_name,
         )
-        if not cert_ok or not cert_path or not key_path:
-            for log in cert_logs:
-                step_error(log)
+        for log in cert_logs:
+            if "generated" in log or "created" in log or "Certificate" in log:
+                step_success(log)
+            else:
+                step_info(log)
+
+        if not cert_ok and not dry_run:
+            step_error("Failed to generate Self-Signed certificate.")
             raise typer.Exit(code=1)
-        step_success(f"Self-Signed SSL certificate generated: {cert_path}")
+
     else:
-        if not target_domain:
-            step_error("Domain name is required for Let's Encrypt SSL.")
-            raise typer.Exit(code=1)
-        step_info(f"Requesting Let's Encrypt SSL certificate for domain '{target_domain}'...")
-        cert_ok, cert_logs, cert_path, key_path = ssl_mgr.request_certificate(domain=target_domain, email=email)
-        if not cert_ok or not cert_path or not key_path:
+        # Let's Encrypt
+        step_info(f"Provisioning Let's Encrypt SSL certificate for '{target_domain}' via Certbot...")
+        cert_ok, cert_logs, cert_path, key_path = ssl_mgr.request_certificate(
+            domain=target_domain,
+            email=email,
+        )
+        if not cert_ok and not dry_run:
             for log in cert_logs:
                 step_error(log)
             raise typer.Exit(code=1)
@@ -766,6 +845,12 @@ def service_setup(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively"),
 ):
     """Interactively generate systemd unit file, enable on boot, and start the service."""
+    name = _normalize_str(name)
+    description = _normalize_str(description)
+    user = _normalize_str(user)
+    working_dir = _normalize_str(working_dir)
+    exec_start = _normalize_str(exec_start)
+    restart = _normalize_str(restart, default="always") or "always"
     dry_run = _normalize_bool(dry_run, default=False)
     non_interactive = _normalize_bool(non_interactive, default=False)
     print_banner()
@@ -804,6 +889,15 @@ def service_setup(
                 default="/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000",
             ).strip()
 
+    if not non_interactive and (not restart or restart == "always"):
+        console.print("\n[bold cyan]Select Restart Policy:[/bold cyan]")
+        console.print("  [bold]1.[/bold] [bold green]always[/bold green] (Recommended for web backends & APIs)")
+        console.print("  [bold]2.[/bold] [bold yellow]on-failure[/bold yellow] (Restart only on crash / error exit)")
+        console.print("  [bold]3.[/bold] [bold]no[/bold] (Do not restart automatically)")
+        rst_choice = Prompt.ask("Choose restart policy", choices=["1", "2", "3"], default="1")
+        restart_map = {"1": "always", "2": "on-failure", "3": "no"}
+        restart = restart_map.get(rst_choice, "always")
+
     config = SystemdServiceConfig(
         service_name=name,
         description=description,
@@ -815,6 +909,14 @@ def service_setup(
 
     service_mgr = ServiceManager(dry_run=dry_run)
     state_mgr = StateManager()
+
+    unit_content = service_mgr.render_systemd_unit(config)
+    print_unit_preview(unit_content, title=f"Systemd Service Unit Preview: {config.service_name}.service")
+
+    if not non_interactive:
+        if not Confirm.ask(f"[bold green]Deploy, enable on boot, and start '{config.service_name}.service'?[/bold green]", default=True):
+            console.print("[yellow]Service deployment cancelled by user.[/yellow]")
+            return
 
     step_info(f"Generating systemd service unit '/etc/systemd/system/{config.service_name}.service'...")
     success, logs, unit_path = service_mgr.create_systemd_service(config)
@@ -885,6 +987,7 @@ def service_remove(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively"),
 ):
     """Stop, disable boot autostart, delete unit file, and daemon-reload a systemd service."""
+    service = _normalize_str(service)
     dry_run = _normalize_bool(dry_run, default=False)
     non_interactive = _normalize_bool(non_interactive, default=False)
     print_banner()
@@ -935,6 +1038,8 @@ def service_control(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate actions without modifying system"),
 ):
     """Perform lifecycle actions on a managed systemd unit."""
+    service = _normalize_str(service) or ""
+    action = _normalize_str(action) or ""
     dry_run = _normalize_bool(dry_run, default=False)
     service_mgr = ServiceManager(dry_run=dry_run)
     ok, out = service_mgr.control_systemd_service(service, action)
@@ -961,15 +1066,16 @@ def interactive_menu():
         console.print("  [bold cyan]4.[/bold cyan] 📋 [bold]List Registered Projects & Routes[/bold]")
         console.print("  [bold cyan]5.[/bold cyan] ⚙️  [bold]Create & Auto-Enable Systemd Service[/bold] [dim](Start on Boot / Reboot)[/dim]")
         console.print("  [bold cyan]6.[/bold cyan] 📑 [bold]List & Monitor Managed Systemd Services[/bold]")
-        console.print("  [bold cyan]7.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
-        console.print("  [bold cyan]8.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
-        console.print("  [bold cyan]9.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
-        console.print("  [bold cyan]10.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
-        console.print("  [bold cyan]11.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
-        console.print("  [bold cyan]12.[/bold cyan] 🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
-        console.print("  [bold cyan]13.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
+        console.print("  [bold cyan]7.[/bold cyan] ▶️  [bold]Control Systemd Service[/bold] [dim](Start, Stop, Restart, Status, Logs)[/dim]")
+        console.print("  [bold cyan]8.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
+        console.print("  [bold cyan]9.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
+        console.print("  [bold cyan]10.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
+        console.print("  [bold cyan]11.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
+        console.print("  [bold cyan]12.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
+        console.print("  [bold cyan]13.[/bold cyan] 🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
+        console.print("  [bold cyan]14.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
 
-        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-13]", default="1").strip()
+        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-14]", default="1").strip()
 
         if choice == "1":
             setup(dry_run=False, non_interactive=False)
@@ -1015,18 +1121,48 @@ def interactive_menu():
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "7":
-            service_remove(dry_run=False, non_interactive=False)
+            state_mgr = StateManager()
+            service_mgr = ServiceManager()
+            services = state_mgr.list_services()
+            if not services:
+                step_warn("No systemd services registered. Create one with Option 5 first.")
+                svc_input = Prompt.ask("Enter systemd service unit name to control (e.g. nginx, fastapi)", default="nginx").strip()
+            else:
+                console.print("\n[bold cyan]Select Managed Systemd Service:[/bold cyan]")
+                for idx, s in enumerate(services, 1):
+                    console.print(f"  [bold cyan]{idx}.[/bold cyan] [bold white]{s.service_name}.service[/bold white] ({s.description})")
+                svc_input = Prompt.ask("Enter Service Name or Number", default=services[0].service_name).strip()
+                target_svc = state_mgr.get_service(svc_input)
+                if target_svc:
+                    svc_input = target_svc.service_name
+
+            console.print("\n[bold cyan]Select Action:[/bold cyan]")
+            console.print("  [bold]1.[/bold] 🔍 [bold]Status[/bold] (systemctl status)")
+            console.print("  [bold]2.[/bold] 🚀 [bold]Start[/bold] (systemctl start)")
+            console.print("  [bold]3.[/bold] ⏹️  [bold]Stop[/bold] (systemctl stop)")
+            console.print("  [bold]4.[/bold] 🔄 [bold]Restart[/bold] (systemctl restart)")
+            console.print("  [bold]5.[/bold] 📑 [bold]View Logs[/bold] (journalctl -u -n 30)")
+            act_choice = Prompt.ask("Choose action [1-5]", choices=["1", "2", "3", "4", "5"], default="1")
+            act_map = {"1": "status", "2": "start", "3": "stop", "4": "restart", "5": "logs"}
+            chosen_action = act_map.get(act_choice, "status")
+
+            ok, out = service_mgr.control_systemd_service(svc_input, chosen_action)
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "8":
-            inspect_configs()
+            service_remove(dry_run=False, non_interactive=False)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "9":
-            status()
+            inspect_configs()
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "10":
+            status()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                break
+        elif choice == "11":
             proj = Prompt.ask("Project name", default="demo-app").strip()
             dom = Prompt.ask("Domain (optional, leave empty for IP)", default="").strip() or None
             pt = IntPrompt.ask("Backend port", default=8000)
@@ -1035,11 +1171,11 @@ def interactive_menu():
             preview(project=proj, domain=dom, port=pt, route=rt, ssl=use_ssl)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "11":
+        elif choice == "12":
             test_config()
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "12":
+        elif choice == "13":
             state_mgr = StateManager()
             projects = state_mgr.list_projects()
             if not projects:
@@ -1057,11 +1193,11 @@ def interactive_menu():
             if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
                 remove_project(project=target_rem, dry_run=False)
             break
-        elif choice in ("13", "0", "exit", "q", "quit"):
+        elif choice in ("14", "0", "exit", "q", "quit"):
             console.print("[yellow]Goodbye![/yellow]")
             break
         else:
-            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 13.")
+            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 14.")
 
 
 @app.callback(invoke_without_command=True)

@@ -211,4 +211,12 @@ def print_systemd_services_table(services: List[dict]) -> None:
     console.print(table)
 
 
+def print_unit_preview(content: str, title: str = "Systemd Service Unit Preview") -> None:
+    """Display syntax-highlighted systemd unit file preview."""
+    syntax = Syntax(content, "ini", theme="monokai", line_numbers=True)
+    panel = Panel(syntax, title=f"[bold green]{title}[/bold green]", border_style="cyan")
+    console.print(panel)
+
+
+
 

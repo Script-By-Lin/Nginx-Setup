@@ -147,6 +147,24 @@ class ProjectState(BaseModel):
     ssl_port: int = 443
 
 
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_option_info(cls, data: object) -> object:
+        if isinstance(data, dict):
+            cleaned = {}
+            for k, v in data.items():
+                if v is not None and hasattr(v, "default"):
+                    def_val = getattr(v, "default", None)
+                    from pydantic_core import PydanticUndefined
+                    if def_val is ... or def_val is PydanticUndefined:
+                        continue
+                    cleaned[k] = def_val
+                else:
+                    cleaned[k] = v
+            return cleaned
+        return data
+
+
 class SystemdServiceConfig(BaseModel):
     """Configuration for generating a systemd service unit file."""
     service_name: str = Field(..., description="Service unit name without .service extension, e.g. fastapi")
@@ -160,10 +178,27 @@ class SystemdServiceConfig(BaseModel):
     environment: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
     service_file_path: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_option_info(cls, data: object) -> object:
+        if isinstance(data, dict):
+            cleaned = {}
+            for k, v in data.items():
+                if v is not None and hasattr(v, "default"):
+                    def_val = getattr(v, "default", None)
+                    from pydantic_core import PydanticUndefined
+                    if def_val is ... or def_val is PydanticUndefined:
+                        continue
+                    cleaned[k] = def_val
+                else:
+                    cleaned[k] = v
+            return cleaned
+        return data
+
     @field_validator("service_name")
     @classmethod
     def clean_service_name(cls, v: str) -> str:
-        v = v.strip()
+        v = str(v).strip()
         if v.endswith(".service"):
             v = v[:-8]
         return v
@@ -182,4 +217,21 @@ class SystemdServiceState(BaseModel):
     updated_at: str
     is_enabled: bool = True
     is_active: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_option_info(cls, data: object) -> object:
+        if isinstance(data, dict):
+            cleaned = {}
+            for k, v in data.items():
+                if v is not None and hasattr(v, "default"):
+                    def_val = getattr(v, "default", None)
+                    from pydantic_core import PydanticUndefined
+                    if def_val is ... or def_val is PydanticUndefined:
+                        continue
+                    cleaned[k] = def_val
+                else:
+                    cleaned[k] = v
+            return cleaned
+        return data
 
