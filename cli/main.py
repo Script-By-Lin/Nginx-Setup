@@ -1050,6 +1050,70 @@ def service_control(
         console.print(f"[bold red]{out}[/bold red]")
 
 
+def interactive_service_control(dry_run: bool = False) -> None:
+    """Interactive control sub-menu allowing continuous actions on systemd services."""
+    state_mgr = StateManager()
+    service_mgr = ServiceManager(dry_run=dry_run)
+    current_svc = None
+
+    while True:
+        services = state_mgr.list_services()
+
+        # If no target service selected yet, prompt user to pick one
+        if not current_svc:
+            if not services:
+                step_warn("No systemd services registered in database.")
+                console.print("[dim]You can still manage system services like 'nginx' or any existing unit.[/dim]")
+                svc_input = Prompt.ask("[bold cyan]Enter systemd service unit name to control[/bold cyan] [dim](or 'q' to go back)[/dim]", default="nginx").strip()
+                if svc_input.lower() in ("q", "back", "exit", "0", ""):
+                    break
+                current_svc = svc_input
+            else:
+                console.print("\n[bold cyan]Select Managed Systemd Service to Control:[/bold cyan]")
+                for idx, s in enumerate(services, 1):
+                    console.print(f"  [bold cyan]{idx}.[/bold cyan] [bold white]{s.service_name}.service[/bold white] ({s.description})")
+                svc_input = Prompt.ask("Enter Service Name, Number, or system unit (e.g. nginx) [dim](or 'q' to go back)[/dim]", default=services[0].service_name).strip()
+                if svc_input.lower() in ("q", "back", "exit", "0", ""):
+                    break
+                target_svc = state_mgr.get_service(svc_input)
+                current_svc = target_svc.service_name if target_svc else svc_input
+
+        # Sub-menu actions for the current service
+        console.print(f"\n[bold cyan]─── ▶️ Systemd Service Actions: [bold green]{current_svc}.service[/bold green] ───────────────────[/bold cyan]")
+        console.print("  [bold cyan]1.[/bold cyan] 🔍 [bold]Status[/bold] [dim](systemctl status)[/dim]")
+        console.print("  [bold cyan]2.[/bold cyan] 🚀 [bold]Start[/bold] [dim](systemctl start)[/dim]")
+        console.print("  [bold cyan]3.[/bold cyan] ⏹️  [bold]Stop[/bold] [dim](systemctl stop)[/dim]")
+        console.print("  [bold cyan]4.[/bold cyan] 🔄 [bold]Restart[/bold] [dim](systemctl restart)[/dim]")
+        console.print("  [bold cyan]5.[/bold cyan] 📑 [bold]View Logs[/bold] [dim](journalctl -u -n 30)[/dim]")
+        console.print("  [bold cyan]6.[/bold cyan] 🔄 [bold]Select Another Service[/bold]")
+        console.print("  [bold cyan]7.[/bold cyan] 🔙 [bold yellow]Back to Main Menu[/bold yellow]")
+
+        act_choice = Prompt.ask("\n[bold green]Choose action [1-7][/bold green]", default="1").strip()
+
+        if act_choice == "1":
+            ok, out = service_mgr.control_systemd_service(current_svc, "status")
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+        elif act_choice == "2":
+            ok, out = service_mgr.control_systemd_service(current_svc, "start")
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+        elif act_choice == "3":
+            ok, out = service_mgr.control_systemd_service(current_svc, "stop")
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+        elif act_choice == "4":
+            ok, out = service_mgr.control_systemd_service(current_svc, "restart")
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+        elif act_choice == "5":
+            ok, out = service_mgr.control_systemd_service(current_svc, "logs")
+            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+        elif act_choice == "6":
+            current_svc = None
+            continue
+        elif act_choice in ("7", "q", "back", "exit", "0"):
+            break
+        else:
+            step_error(f"Invalid option '{act_choice}'. Please choose from 1 to 7.")
+
+
 @app.command(name="menu", help="Launch interactive numbered menu.")
 def menu():
     """Launch the interactive numbered menu."""
@@ -1151,34 +1215,7 @@ def interactive_menu():
                 console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "10":
-            state_mgr = StateManager()
-            service_mgr = ServiceManager()
-            services = state_mgr.list_services()
-            if not services:
-                step_warn("No systemd services registered in database.")
-                console.print("[dim]You can still manage system services like 'nginx' or any existing unit.[/dim]")
-                svc_input = Prompt.ask("[bold cyan]Enter systemd service unit name to control[/bold cyan]", default="nginx").strip()
-            else:
-                console.print("\n[bold cyan]Select Managed Systemd Service:[/bold cyan]")
-                for idx, s in enumerate(services, 1):
-                    console.print(f"  [bold cyan]{idx}.[/bold cyan] [bold white]{s.service_name}.service[/bold white] ({s.description})")
-                svc_input = Prompt.ask("Enter Service Name, Number, or system unit (e.g. nginx)", default=services[0].service_name).strip()
-                target_svc = state_mgr.get_service(svc_input)
-                if target_svc:
-                    svc_input = target_svc.service_name
-
-            console.print(f"\n[bold cyan]Select Action for '{svc_input}':[/bold cyan]")
-            console.print("  [bold]1.[/bold] 🔍 [bold]Status[/bold] (systemctl status)")
-            console.print("  [bold]2.[/bold] 🚀 [bold]Start[/bold] (systemctl start)")
-            console.print("  [bold]3.[/bold] ⏹️  [bold]Stop[/bold] (systemctl stop)")
-            console.print("  [bold]4.[/bold] 🔄 [bold]Restart[/bold] (systemctl restart)")
-            console.print("  [bold]5.[/bold] 📑 [bold]View Logs[/bold] (journalctl -u -n 30)")
-            act_choice = Prompt.ask("Choose action [1-5]", choices=["1", "2", "3", "4", "5"], default="1")
-            act_map = {"1": "status", "2": "start", "3": "stop", "4": "restart", "5": "logs"}
-            chosen_action = act_map.get(act_choice, "status")
-
-            ok, out = service_mgr.control_systemd_service(svc_input, chosen_action)
-            console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
+            interactive_service_control(dry_run=False)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 console.print("[yellow]Goodbye![/yellow]")
                 break

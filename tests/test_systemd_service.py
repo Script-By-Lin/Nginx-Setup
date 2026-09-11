@@ -148,3 +148,32 @@ def test_systemd_config_with_option_info():
     assert cfg.exec_start == "/usr/bin/python3 app.py"
     assert cfg.restart == "always"
 
+
+def test_interactive_service_control(temp_storage, monkeypatch):
+    from cli.main import interactive_service_control
+    # Save a test service
+    svc = SystemdServiceState(
+        service_name="demo-svc",
+        description="Demo Service",
+        user="nginx",
+        working_dir="/home/bit/app",
+        exec_start="/usr/bin/python3 app.py",
+        service_file_path="/etc/systemd/system/demo-svc.service",
+        created_at="2026-09-11 20:00:00",
+        updated_at="2026-09-11 20:00:00",
+        is_enabled=True,
+        is_active=True,
+    )
+    temp_storage.save_service(svc)
+
+    # Mock StateManager in main to use temp_storage
+    with patch("cli.main.StateManager", return_value=temp_storage), \
+         patch("core.service_manager.run_command", return_value=CommandResult(command="systemctl", returncode=0, stdout="active (running)", stderr="")):
+        
+        inputs = iter(["1", "1", "7"])  # Select service 1, action 1 (status), then action 7 (back)
+        monkeypatch.setattr("rich.prompt.Prompt.ask", lambda *args, **kwargs: next(inputs))
+        
+        # Should execute status and then exit sub-menu cleanly
+        interactive_service_control(dry_run=True)
+
+
