@@ -1060,83 +1060,135 @@ def interactive_menu():
     while True:
         print_banner()
         console.print("[bold yellow]Please select an action by number:[/bold yellow]\n")
-        console.print("  [bold cyan]1.[/bold cyan] 🚀 [bold]Setup New Reverse Proxy[/bold] [dim](Interactive Wizard)[/dim]")
-        console.print("  [bold cyan]2.[/bold cyan] ➕ [bold]Add Service / Route[/bold] [dim](Append route to existing project)[/dim]")
-        console.print("  [bold cyan]3.[/bold cyan] 🔒 [bold]Enable / Upgrade SSL for Project[/bold] [dim](by Project CODE: SE-001)[/dim]")
-        console.print("  [bold cyan]4.[/bold cyan] 📋 [bold]List Registered Projects & Routes[/bold]")
-        console.print("  [bold cyan]5.[/bold cyan] ⚙️  [bold]Create & Auto-Enable Systemd Service[/bold] [dim](Start on Boot / Reboot)[/dim]")
-        console.print("  [bold cyan]6.[/bold cyan] 📑 [bold]List & Monitor Managed Systemd Services[/bold]")
-        console.print("  [bold cyan]7.[/bold cyan] ▶️  [bold]Control Systemd Service[/bold] [dim](Start, Stop, Restart, Status, Logs)[/dim]")
-        console.print("  [bold cyan]8.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
-        console.print("  [bold cyan]9.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
-        console.print("  [bold cyan]10.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
-        console.print("  [bold cyan]11.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
-        console.print("  [bold cyan]12.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
-        console.print("  [bold cyan]13.[/bold cyan] 🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
+
+        console.print("[bold cyan]─── 🌐 Nginx Reverse Proxy Management ───────────────────────────────[/bold cyan]")
+        console.print("  [bold cyan]1.[/bold cyan]  🚀 [bold]Setup New Reverse Proxy[/bold] [dim](Interactive Wizard)[/dim]")
+        console.print("  [bold cyan]2.[/bold cyan]  ➕ [bold]Add Service / Route[/bold] [dim](Append route to existing project)[/dim]")
+        console.print("  [bold cyan]3.[/bold cyan]  🔒 [bold]Enable / Upgrade SSL for Project[/bold] [dim](by Project CODE: SE-001)[/dim]")
+        console.print("  [bold cyan]4.[/bold cyan]  📋 [bold]List Registered Projects & Routes[/bold]")
+        console.print("  [bold cyan]5.[/bold cyan]  🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
+        console.print("  [bold cyan]6.[/bold cyan]  🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
+        console.print("  [bold cyan]7.[/bold cyan]  🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
+
+        console.print("\n[bold cyan]─── ⚙️  Systemd Background Services (Auto-Start on Boot) ─────────────[/bold cyan]")
+        console.print("  [bold cyan]8.[/bold cyan]  ⚙️  [bold]Create & Auto-Enable Systemd Service[/bold] [dim](FastAPI, Flask, etc.)[/dim]")
+        console.print("  [bold cyan]9.[/bold cyan]  📑 [bold]List & Monitor Managed Systemd Services[/bold]")
+        console.print("  [bold cyan]10.[/bold cyan] ▶️  [bold]Control Systemd Service[/bold] [dim](Start, Stop, Restart, Status, Logs)[/dim]")
+        console.print("  [bold cyan]11.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
+
+        console.print("\n[bold cyan]─── 🩺 Diagnostics & Inspection ─────────────────────────────────────[/bold cyan]")
+        console.print("  [bold cyan]12.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
+        console.print("  [bold cyan]13.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
+
+        console.print("\n[bold cyan]─── 🚪 Exit ─────────────────────────────────────────────────────────[/bold cyan]")
         console.print("  [bold cyan]14.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
 
         choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-14]", default="1").strip()
 
         if choice == "1":
             setup(dry_run=False, non_interactive=False)
-            break
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
         elif choice == "2":
             state_mgr = StateManager()
             projects = state_mgr.list_projects()
             if not projects:
                 step_warn("No projects found in registry. Please run Setup (Option 1) first.")
-                if not Confirm.ask("Do you want to run Setup now?", default=True):
-                    continue
-                setup(dry_run=False, non_interactive=False)
-                break
-
-            console.print("\n[bold cyan]Configured Projects:[/bold cyan]")
-            for idx, p in enumerate(projects, 1):
-                console.print(f"  [bold cyan]{idx}.[/bold cyan] Project CODE: [bold green]{p.project_code}[/bold green] | [bold white]{p.project_name}[/bold white] ({p.domain or 'IP'})")
-
-            proj_choice = Prompt.ask("Select Project CODE (e.g. SE-001) or number", default=projects[0].project_code).strip()
-            if proj_choice.isdigit() and 1 <= int(proj_choice) <= len(projects):
-                target_proj = projects[int(proj_choice) - 1].project_code
+                if Confirm.ask("Do you want to run Setup now?", default=True):
+                    setup(dry_run=False, non_interactive=False)
             else:
-                target_proj = proj_choice
+                console.print("\n[bold cyan]Configured Projects:[/bold cyan]")
+                for idx, p in enumerate(projects, 1):
+                    console.print(f"  [bold cyan]{idx}.[/bold cyan] Project CODE: [bold green]{p.project_code}[/bold green] | [bold white]{p.project_name}[/bold white] ({p.domain or 'IP'})")
 
-            path = Prompt.ask("Enter Route Path (e.g. /api2/)", default="/api2/").strip()
-            port = IntPrompt.ask("Enter Backend Port (e.g. 8002)", default=8002)
-            host = Prompt.ask("Enter Backend Host / IP", default="127.0.0.1").strip()
-            add_service(project=target_proj, path=path, port=port, host=host, dry_run=False)
-            break
+                proj_choice = Prompt.ask("Select Project CODE (e.g. SE-001) or number", default=projects[0].project_code).strip()
+                if proj_choice.isdigit() and 1 <= int(proj_choice) <= len(projects):
+                    target_proj = projects[int(proj_choice) - 1].project_code
+                else:
+                    target_proj = proj_choice
+
+                path = Prompt.ask("Enter Route Path (e.g. /api2/)", default="/api2/").strip()
+                port = IntPrompt.ask("Enter Backend Port (e.g. 8002)", default=8002)
+                host = Prompt.ask("Enter Backend Host / IP", default="127.0.0.1").strip()
+                add_service(project=target_proj, path=path, port=port, host=host, dry_run=False)
+
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
         elif choice == "3":
             enable_ssl(dry_run=False, non_interactive=False)
-            break
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
         elif choice == "4":
             list_projects()
             if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "5":
-            service_setup(dry_run=False, non_interactive=False)
+            proj = Prompt.ask("Project name", default="demo-app").strip()
+            dom = Prompt.ask("Domain (optional, leave empty for IP)", default="").strip() or None
+            pt = IntPrompt.ask("Backend port", default=8000)
+            rt = Prompt.ask("Route path", default="/").strip()
+            use_ssl = Confirm.ask("Enable SSL in preview?", default=bool(dom))
+            preview(project=proj, domain=dom, port=pt, route=rt, ssl=use_ssl)
             if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "6":
-            service_list()
+            test_config()
             if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "7":
+            state_mgr = StateManager()
+            projects = state_mgr.list_projects()
+            if not projects:
+                step_warn("No projects found in registry to remove.")
+            else:
+                console.print("\n[bold cyan]Select Project to Remove:[/bold cyan]")
+                for idx, p in enumerate(projects, 1):
+                    console.print(f"  [bold cyan]{idx}.[/bold cyan] Project CODE: [bold green]{p.project_code}[/bold green] | [bold white]{p.project_name}[/bold white] ({p.config_file_path})")
+
+                rem_choice = Prompt.ask("Enter Project CODE (e.g. SE-001) or Name to remove").strip()
+                target_obj = state_mgr.get_project(rem_choice)
+                target_rem = target_obj.project_name if target_obj else rem_choice
+
+                if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
+                    remove_project(project=target_rem, dry_run=False)
+
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
+        elif choice == "8":
+            service_setup(dry_run=False, non_interactive=False)
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
+        elif choice == "9":
+            service_list()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
+        elif choice == "10":
             state_mgr = StateManager()
             service_mgr = ServiceManager()
             services = state_mgr.list_services()
             if not services:
-                step_warn("No systemd services registered. Create one with Option 5 first.")
-                svc_input = Prompt.ask("Enter systemd service unit name to control (e.g. nginx, fastapi)", default="nginx").strip()
+                step_warn("No systemd services registered in database.")
+                console.print("[dim]You can still manage system services like 'nginx' or any existing unit.[/dim]")
+                svc_input = Prompt.ask("[bold cyan]Enter systemd service unit name to control[/bold cyan]", default="nginx").strip()
             else:
                 console.print("\n[bold cyan]Select Managed Systemd Service:[/bold cyan]")
                 for idx, s in enumerate(services, 1):
                     console.print(f"  [bold cyan]{idx}.[/bold cyan] [bold white]{s.service_name}.service[/bold white] ({s.description})")
-                svc_input = Prompt.ask("Enter Service Name or Number", default=services[0].service_name).strip()
+                svc_input = Prompt.ask("Enter Service Name, Number, or system unit (e.g. nginx)", default=services[0].service_name).strip()
                 target_svc = state_mgr.get_service(svc_input)
                 if target_svc:
                     svc_input = target_svc.service_name
 
-            console.print("\n[bold cyan]Select Action:[/bold cyan]")
+            console.print(f"\n[bold cyan]Select Action for '{svc_input}':[/bold cyan]")
             console.print("  [bold]1.[/bold] 🔍 [bold]Status[/bold] (systemctl status)")
             console.print("  [bold]2.[/bold] 🚀 [bold]Start[/bold] (systemctl start)")
             console.print("  [bold]3.[/bold] ⏹️  [bold]Stop[/bold] (systemctl stop)")
@@ -1149,50 +1201,23 @@ def interactive_menu():
             ok, out = service_mgr.control_systemd_service(svc_input, chosen_action)
             console.print(f"\n[bold {'green' if ok else 'red'}]{out}[/bold {'green' if ok else 'red'}]")
             if not Confirm.ask("\nReturn to main menu?", default=True):
-                break
-        elif choice == "8":
-            service_remove(dry_run=False, non_interactive=False)
-            if not Confirm.ask("\nReturn to main menu?", default=True):
-                break
-        elif choice == "9":
-            inspect_configs()
-            if not Confirm.ask("\nReturn to main menu?", default=True):
-                break
-        elif choice == "10":
-            status()
-            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "11":
-            proj = Prompt.ask("Project name", default="demo-app").strip()
-            dom = Prompt.ask("Domain (optional, leave empty for IP)", default="").strip() or None
-            pt = IntPrompt.ask("Backend port", default=8000)
-            rt = Prompt.ask("Route path", default="/").strip()
-            use_ssl = Confirm.ask("Enable SSL in preview?", default=bool(dom))
-            preview(project=proj, domain=dom, port=pt, route=rt, ssl=use_ssl)
+            service_remove(dry_run=False, non_interactive=False)
             if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "12":
-            test_config()
+            inspect_configs()
             if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
                 break
         elif choice == "13":
-            state_mgr = StateManager()
-            projects = state_mgr.list_projects()
-            if not projects:
-                step_warn("No projects found in registry to remove.")
-                continue
-
-            console.print("\n[bold cyan]Select Project to Remove:[/bold cyan]")
-            for idx, p in enumerate(projects, 1):
-                console.print(f"  [bold cyan]{idx}.[/bold cyan] Project CODE: [bold green]{p.project_code}[/bold green] | [bold white]{p.project_name}[/bold white] ({p.config_file_path})")
-
-            rem_choice = Prompt.ask("Enter Project CODE (e.g. SE-001) or Name to remove").strip()
-            target_obj = state_mgr.get_project(rem_choice)
-            target_rem = target_obj.project_name if target_obj else rem_choice
-
-            if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
-                remove_project(project=target_rem, dry_run=False)
-            break
+            status()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
         elif choice in ("14", "0", "exit", "q", "quit"):
             console.print("[yellow]Goodbye![/yellow]")
             break

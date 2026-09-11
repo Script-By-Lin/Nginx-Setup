@@ -218,5 +218,15 @@ def test_cli_menu_exit():
     assert "Goodbye!" in result.stdout
 
 
+def test_cli_menu_loop_return():
+    # Simulate choosing Option 4 (List Projects), answering 'y' to return to menu, then choosing 14 (Exit)
+    result = runner.invoke(app, ["menu"], input="4\ny\n14\n")
+    assert result.exit_code == 0
+    assert "projects" in result.stdout.lower() or "registered" in result.stdout.lower()
+    assert "Goodbye!" in result.stdout
+
+
+
+
 
 
