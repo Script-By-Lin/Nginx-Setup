@@ -11,6 +11,7 @@ from cli.ui import (
     console,
     print_banner,
     print_config_preview,
+    print_nginx_inspection_table,
     print_projects_table,
     print_success_summary,
     step_error,
@@ -20,6 +21,7 @@ from cli.ui import (
 )
 from core.firewall_manager import FirewallManager
 from core.installer import PackageInstaller
+from core.nginx_inspector import NginxInspector
 from core.nginx_manager import NginxManager
 from core.os_detector import OSDetector
 from core.service_manager import ServiceManager
@@ -409,7 +411,7 @@ def list_projects():
 
 @app.command(name="status", help="Show system status, OS, Nginx service state, firewall rules, and IPs.")
 def status():
-    """Show comprehensive status of OS, Nginx service, firewall, and IP."""
+    """Show comprehensive status of OS, Nginx service, firewall, IP, and active Nginx virtual hosts."""
     print_banner()
     os_info = OSDetector().detect()
     service_status = ServiceManager().get_nginx_status()
@@ -446,6 +448,12 @@ def status():
     table.add_row("Local Interface IP", local_ip)
 
     console.print(table)
+
+    # Scan and display all active system Nginx configurations & listening ports
+    inspector = NginxInspector(root_conf_dir=os_info.nginx_conf_dir if os.path.exists(os_info.nginx_conf_dir) else "/etc/nginx")
+    scan = inspector.scan_all_configs()
+    console.print()
+    print_nginx_inspection_table(scan)
 
 
 @app.command(name="preview", help="Preview rendered Nginx configuration without applying to system.")
@@ -497,23 +505,73 @@ def test_config():
 
 @app.command(name="remove", help="Remove an Nginx project configuration and reload Nginx.")
 def remove_project(
-    project: str = typer.Argument(..., help="Name of the project to remove"),
+    project: str = typer.Argument(..., help="Project Code (e.g. SE-001) or name of the project to remove"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate removal"),
 ):
-    """Remove a virtualhost configuration, rollback on error, and reload Nginx."""
+    """Remove a virtualhost configuration by Project Code or name, delete state, and reload Nginx."""
     print_banner()
     state_mgr = StateManager()
     nginx_mgr = NginxManager(dry_run=dry_run)
+    inspector = NginxInspector()
 
-    step_info(f"Removing project configuration for '{project}'...")
-    rem_ok, logs = nginx_mgr.remove_config(project)
-    if rem_ok:
-        state_mgr.delete_project(project)
-        step_success(f"Project '{project}' successfully decommissioned and removed.")
+    # 1. Resolve project by Project Code, name, or index
+    project_state = state_mgr.get_project(project)
+    if project_state:
+        target_name = project_state.project_name
+        target_code = project_state.project_code
+        target_conf = project_state.config_file_path
+        ports_used = [r.backend_port for r in project_state.routes]
+        step_info(f"Removing Project CODE: [bold green]{target_code}[/bold green] | [bold cyan]{target_name}[/bold cyan] ({target_conf})...")
     else:
-        for log in logs:
-            step_error(log)
-        raise typer.Exit(code=1)
+        target_name = project
+        target_code = None
+        target_conf = None
+        ports_used = []
+        step_info(f"Removing project configuration for '{project}'...")
+
+    # 2. Remove configuration files and reload
+    rem_ok, logs = nginx_mgr.remove_config(target_name, config_file_path=target_conf)
+    for log in logs:
+        if "Removed" in log or "reloaded" in log:
+            step_success(log)
+        elif "Warning" in log:
+            step_warn(log)
+        else:
+            step_info(log)
+
+    # 3. Always remove from SQLite registry
+    state_mgr.delete_project(project)
+    if target_code:
+        state_mgr.delete_project(target_code)
+    if target_name:
+        state_mgr.delete_project(target_name)
+
+    step_success(f"Project '{project}' successfully decommissioned and removed from database.")
+
+    # 4. Scan system Nginx configs (nginx.conf and conf.d) and report detected listening ports
+    scan = inspector.scan_all_configs()
+    console.print("\n[bold cyan]🔍 Active System Nginx Inspection & Port Status:[/bold cyan]")
+    if scan.all_listening_ports:
+        ports_str = ", ".join(f"[bold green]{p}[/bold green]" for p in scan.all_listening_ports)
+        step_info(f"Detected active Nginx listening ports in nginx.conf / conf.d: {ports_str}")
+    else:
+        step_info("No other custom listening ports found in Nginx configs.")
+
+    if scan.virtual_hosts:
+        console.print(f"  [dim]Active virtual host files remaining: {len(scan.virtual_hosts)} file(s)[/dim]")
+        for vh in scan.virtual_hosts[:4]:
+            sn = ", ".join(vh.server_names) if vh.server_names else "_"
+            console.print(f"    • [cyan]{vh.file_path}[/cyan] (Ports: {vh.listen_ports}, Server: {sn})")
+
+    # 5. Check freed backend ports
+    if ports_used:
+        for p in ports_used:
+            is_listening = PortValidator.is_port_listening(p)
+            proc = PortValidator.get_process_using_port(p)
+            if is_listening:
+                step_info(f"Port {p} is currently active on system: {proc or 'running service'}")
+            else:
+                step_info(f"Backend port {p} is free / idle.")
 
 
 @app.command(name="enable-ssl", help="Enable or upgrade SSL for an existing project by Project Code (e.g. SE-001) or name.")

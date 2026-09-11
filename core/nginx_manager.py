@@ -125,33 +125,39 @@ class NginxManager:
 
         return reload_ok, logs, target_path
 
-    def remove_config(self, project_name: str) -> Tuple[bool, List[str]]:
-        """Remove a project's Nginx configuration and reload."""
+    def remove_config(self, project_name: str, config_file_path: Optional[str] = None) -> Tuple[bool, List[str]]:
+        """Remove a project's Nginx configuration, clean up symlinks, validate, and reload."""
         logs = []
         target_path, symlink_path = self.get_config_target_path(project_name)
 
-        if not os.path.exists(target_path) and not self.dry_run:
-            return False, [f"Configuration file {target_path} does not exist."]
+        if config_file_path and (os.path.exists(config_file_path) or not os.path.exists(target_path)):
+            target_path = config_file_path
 
-        backup_path = self.backup_manager.create_backup(target_path)
-        if backup_path:
-            logs.append(f"Backup created before removal: {backup_path}")
+        backup_path = None
+        if os.path.exists(target_path):
+            backup_path = self.backup_manager.create_backup(target_path)
+            if backup_path:
+                logs.append(f"Backup created before removal: {backup_path}")
+            if not self.dry_run:
+                run_command(["rm", "-f", target_path], sudo=True)
+            logs.append(f"Removed configuration file: {target_path}")
+        else:
+            logs.append(f"Configuration file {target_path} not found on disk (already removed).")
 
-        if symlink_path and os.path.exists(symlink_path) and not self.dry_run:
-            run_command(["rm", "-f", symlink_path], sudo=True)
+        # Also check and remove potential symlinks (e.g. Debian/Ubuntu sites-enabled)
+        if symlink_path and (os.path.exists(symlink_path) or os.path.islink(symlink_path)):
+            if not self.dry_run:
+                run_command(["rm", "-f", symlink_path], sudo=True)
             logs.append(f"Removed symlink: {symlink_path}")
-
-        if os.path.exists(target_path) and not self.dry_run:
-            run_command(["rm", "-f", target_path], sudo=True)
-            logs.append(f"Removed configuration: {target_path}")
 
         # Test and reload
         test_res = self.test_config()
         if not test_res.success:
-            logs.append("Warning: Nginx test failed after removal. Rolling back...")
-            self.backup_manager.rollback(target_path, backup_path)
+            logs.append("Warning: Nginx syntax test failed after removal. Rolling back...")
+            if backup_path:
+                self.backup_manager.rollback(target_path, backup_path)
             return False, logs
 
         self.service_manager.reload_nginx()
-        logs.append("Nginx reloaded successfully.")
+        logs.append("Nginx configuration validated and service reloaded successfully.")
         return True, logs

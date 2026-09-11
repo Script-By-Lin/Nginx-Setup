@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 from cli.main import app
 from models.server_config import FirewallInfo, FirewallType, ServiceStatus
+from utils.storage import StateManager
 from utils.system import CommandResult
 
 runner = CliRunner()
@@ -95,6 +96,39 @@ def test_cli_remove_dry_run():
         result = runner.invoke(app, ["remove", "test-multi-app", "--dry-run"])
         assert result.exit_code == 0
         assert "successfully decommissioned" in result.stdout
+
+
+def test_cli_remove_by_project_code_dry_run():
+    with patch("core.nginx_manager.NginxManager.test_config", return_value=CommandResult(command="nginx -t", returncode=0, stdout="ok", stderr="")):
+        state_mgr = StateManager()
+        # 1. Setup project
+        runner.invoke(
+            app,
+            [
+                "setup",
+                "--project", "code-del-app",
+                "--port", "8055",
+                "--route", "/",
+                "--dry-run",
+                "--non-interactive",
+            ],
+        )
+        # 2. Check project was saved in registry and has a code
+        proj = state_mgr.get_project("code-del-app")
+        assert proj is not None
+        proj_code = proj.project_code
+
+        # 3. Remove specifically by Project Code
+        remove_res = runner.invoke(app, ["remove", proj_code, "--dry-run"])
+        assert remove_res.exit_code == 0
+        assert "successfully decommissioned" in remove_res.stdout
+        assert "Active System Nginx Inspection & Port Status" in remove_res.stdout
+
+        # 4. Verify project is completely deleted from registry
+        assert state_mgr.get_project("code-del-app") is None
+        assert state_mgr.get_project(proj_code) is None
+
+
 
 
 def test_cli_enable_ssl_by_project_code_dry_run():

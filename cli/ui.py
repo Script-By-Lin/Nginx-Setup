@@ -127,3 +127,36 @@ def print_projects_table(projects: List[ProjectState]) -> None:
         )
 
     console.print(table)
+
+
+def print_nginx_inspection_table(scan_result) -> None:
+    """Display active Nginx system configuration and port scan results."""
+    if not scan_result or not scan_result.virtual_hosts:
+        console.print("[yellow]No active Nginx virtual hosts found in system configuration.[/yellow]")
+        return
+
+    table = Table(title="🔍 Detected System Nginx Configurations & Listening Ports", border_style="green", show_header=True)
+    table.add_column("Config File", style="cyan")
+    table.add_column("Listen Ports", style="bold green")
+    table.add_column("Server Names", style="yellow")
+    table.add_column("SSL", style="magenta")
+    table.add_column("Proxy Upstream", style="white")
+
+    for vh in scan_result.virtual_hosts:
+        ports_str = ", ".join(str(p) for p in vh.listen_ports) or "-"
+        names_str = ", ".join(vh.server_names) if vh.server_names else "_"
+        ssl_str = "[bold green]✔ Yes[/bold green]" if vh.ssl_enabled else "[dim]No[/dim]"
+        proxy_str = ", ".join(vh.proxy_passes[:2]) if vh.proxy_passes else "-"
+        if len(vh.proxy_passes) > 2:
+            proxy_str += f" (+{len(vh.proxy_passes)-2} more)"
+
+        table.add_row(
+            vh.file_path,
+            ports_str,
+            names_str,
+            ssl_str,
+            proxy_str,
+        )
+
+    console.print(table)
+

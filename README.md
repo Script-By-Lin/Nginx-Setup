@@ -195,14 +195,14 @@ View all configured projects with their **Project CODE** (`SE-001`, `SE-002`, ..
 ---
 
 ### 5. System Diagnostics & Status (`status`)
-Inspect OS distribution, package manager, Nginx systemd service status, firewall status, and public IP:
+Inspect OS distribution, package manager, Nginx systemd service status, firewall status, public IP, and scan all active Nginx virtual hosts and listening ports across `/etc/nginx/nginx.conf` and `conf.d/`:
 ```bash
 ./nginx-cli status
 ```
 
 ---
 
-### 5. Preview Configuration (`preview`)
+### 6. Preview Configuration (`preview`)
 Preview generated Nginx configurations with syntax highlighting without touching `/etc/nginx`:
 ```bash
 ./nginx-cli preview --project demo --domain api.demo.com --port 8000 --route / --ssl
@@ -210,7 +210,7 @@ Preview generated Nginx configurations with syntax highlighting without touching
 
 ---
 
-### 6. Test Nginx Syntax (`test-config`)
+### 7. Test Nginx Syntax (`test-config`)
 Run `nginx -t` validation with structured output:
 ```bash
 ./nginx-cli test-config
@@ -218,9 +218,13 @@ Run `nginx -t` validation with structured output:
 
 ---
 
-### 7. Remove Project (`remove`)
-Safely decommission a virtual host, clean up configuration and symlinks, and reload Nginx:
+### 8. Remove Project (`remove`)
+Safely decommission a virtual host by **Project CODE** (e.g. `SE-001`) or project name. Deletes all configuration files, cleans up symlinks, reloads Nginx, completely removes the entry from the SQLite database, and reports remaining active Nginx ports:
 ```bash
+# Remove by Project CODE
+sudo ./nginx-cli remove SE-001
+
+# Remove by project name
 sudo ./nginx-cli remove fastapi-prod
 ```
 
