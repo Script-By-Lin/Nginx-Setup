@@ -38,6 +38,21 @@ app = typer.Typer(
 )
 
 
+def _normalize_bool(val: object, default: bool = False) -> bool:
+    """Safely convert Typer OptionInfo or raw boolean to a Python bool."""
+    if isinstance(val, bool):
+        return val
+    try:
+        from typer.models import OptionInfo
+        if isinstance(val, OptionInfo):
+            if isinstance(val.default, bool):
+                return val.default
+            return default
+    except Exception:
+        pass
+    return default
+
+
 @app.command(name="setup", help="Interactively configure and deploy Nginx reverse proxy with SSL and Firewall rules.")
 def setup(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name (e.g. fastapi-app)"),
@@ -53,6 +68,12 @@ def setup(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively with provided flags"),
 ):
     """Guided wizard to set up Nginx reverse proxy, Certbot SSL, firewall, and multi-service routing."""
+    dry_run = _normalize_bool(dry_run, default=False)
+    non_interactive = _normalize_bool(non_interactive, default=False)
+    self_signed = _normalize_bool(self_signed, default=False)
+    if not isinstance(ssl, bool):
+        ssl = None
+
     print_banner()
 
     os_detector = OSDetector(dry_run=dry_run)
@@ -339,6 +360,7 @@ def add_service(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without applying"),
 ):
     """Appends a new route to an existing project configuration."""
+    dry_run = _normalize_bool(dry_run, default=False)
     print_banner()
     state_mgr = StateManager()
     project_state = state_mgr.get_project(project)
@@ -465,6 +487,7 @@ def preview(
     ssl: bool = typer.Option(False, "--ssl/--no-ssl", help="Simulate SSL enabled"),
 ):
     """Renders the template and displays syntax-highlighted output."""
+    ssl = _normalize_bool(ssl, default=False)
     print_banner()
     nginx_mgr = NginxManager(dry_run=True)
     config = ServerConfig(
@@ -509,6 +532,7 @@ def remove_project(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate removal"),
 ):
     """Remove a virtualhost configuration by Project Code or name, delete state, and reload Nginx."""
+    dry_run = _normalize_bool(dry_run, default=False)
     print_banner()
     state_mgr = StateManager()
     nginx_mgr = NginxManager(dry_run=dry_run)
@@ -584,6 +608,10 @@ def enable_ssl(
     non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively with provided flags"),
 ):
     """Enable or reconfigure SSL certificate on an existing project by Project Code (e.g. SE-001) or name."""
+    dry_run = _normalize_bool(dry_run, default=False)
+    non_interactive = _normalize_bool(non_interactive, default=False)
+    self_signed = _normalize_bool(self_signed, default=False)
+
     print_banner()
     state_mgr = StateManager()
     projects = state_mgr.list_projects()
@@ -748,7 +776,7 @@ def interactive_menu():
         choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-9]", default="1").strip()
 
         if choice == "1":
-            setup()
+            setup(dry_run=False, non_interactive=False)
             break
         elif choice == "2":
             state_mgr = StateManager()
@@ -757,7 +785,7 @@ def interactive_menu():
                 step_warn("No projects found in registry. Please run Setup (Option 1) first.")
                 if not Confirm.ask("Do you want to run Setup now?", default=True):
                     continue
-                setup()
+                setup(dry_run=False, non_interactive=False)
                 break
 
             console.print("\n[bold cyan]Configured Projects:[/bold cyan]")
@@ -773,10 +801,10 @@ def interactive_menu():
             path = Prompt.ask("Enter Route Path (e.g. /api2/)", default="/api2/").strip()
             port = IntPrompt.ask("Enter Backend Port (e.g. 8002)", default=8002)
             host = Prompt.ask("Enter Backend Host / IP", default="127.0.0.1").strip()
-            add_service(project=target_proj, path=path, port=port, host=host)
+            add_service(project=target_proj, path=path, port=port, host=host, dry_run=False)
             break
         elif choice == "3":
-            enable_ssl()
+            enable_ssl(dry_run=False, non_interactive=False)
             break
         elif choice == "4":
             list_projects()
@@ -815,7 +843,7 @@ def interactive_menu():
             target_rem = target_obj.project_name if target_obj else rem_choice
 
             if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
-                remove_project(project=target_rem)
+                remove_project(project=target_rem, dry_run=False)
             break
         elif choice in ("9", "0", "exit", "q", "quit"):
             console.print("[yellow]Goodbye![/yellow]")

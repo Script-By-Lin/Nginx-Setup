@@ -139,7 +139,17 @@ class NginxManager:
             if backup_path:
                 logs.append(f"Backup created before removal: {backup_path}")
             if not self.dry_run:
-                run_command(["rm", "-f", target_path], sudo=True)
+                if is_root() or self.backup_manager._is_writable(target_path):
+                    try:
+                        os.remove(target_path)
+                    except Exception:
+                        run_command(["rm", "-f", target_path], sudo=True)
+                else:
+                    run_command(["rm", "-f", target_path], sudo=True)
+
+                if os.path.exists(target_path):
+                    run_command(["rm", "-f", target_path], sudo=True)
+
             logs.append(f"Removed configuration file: {target_path}")
         else:
             logs.append(f"Configuration file {target_path} not found on disk (already removed).")
@@ -147,8 +157,27 @@ class NginxManager:
         # Also check and remove potential symlinks (e.g. Debian/Ubuntu sites-enabled)
         if symlink_path and (os.path.exists(symlink_path) or os.path.islink(symlink_path)):
             if not self.dry_run:
-                run_command(["rm", "-f", symlink_path], sudo=True)
+                if is_root() or self.backup_manager._is_writable(symlink_path):
+                    try:
+                        os.unlink(symlink_path)
+                    except Exception:
+                        run_command(["rm", "-f", symlink_path], sudo=True)
+                else:
+                    run_command(["rm", "-f", symlink_path], sudo=True)
             logs.append(f"Removed symlink: {symlink_path}")
+
+        # Check and remove any alternate matching config files with project name
+        alt_paths = [
+            f"/etc/nginx/conf.d/{project_name}.conf",
+            f"/etc/nginx/sites-available/{project_name}.conf",
+            f"/etc/nginx/sites-enabled/{project_name}.conf",
+            f"/etc/nginx/http.d/{project_name}.conf",
+        ]
+        for alt in alt_paths:
+            if alt != target_path and alt != symlink_path and (os.path.exists(alt) or os.path.islink(alt)):
+                if not self.dry_run:
+                    run_command(["rm", "-f", alt], sudo=True)
+                logs.append(f"Removed alternate config file: {alt}")
 
         # Test and reload
         test_res = self.test_config()

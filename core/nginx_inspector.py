@@ -52,27 +52,29 @@ class NginxInspector:
 
         # 2. conf.d/*.conf
         for p in base.glob("conf.d/*.conf"):
-            if p.is_file():
+            if p.is_file() and not p.name.endswith("~") and ".bak" not in p.name:
                 files.add(str(p))
 
-        # 3. sites-enabled/*
-        for p in base.glob("sites-enabled/*"):
-            if p.is_file() or p.is_symlink():
-                try:
-                    resolved = str(p.resolve()) if p.is_symlink() else str(p)
-                    if os.path.exists(resolved):
-                        files.add(str(p))
-                except Exception:
-                    pass
+        # 3. sites-enabled/* (active symlinked sites)
+        sites_enabled_dir = base / "sites-enabled"
+        if sites_enabled_dir.exists():
+            for p in sites_enabled_dir.iterdir():
+                if (p.is_file() or p.is_symlink()) and not p.name.endswith("~") and ".bak" not in p.name:
+                    try:
+                        resolved = str(p.resolve()) if p.is_symlink() else str(p)
+                        if os.path.exists(resolved):
+                            files.add(str(p))
+                    except Exception:
+                        pass
+        else:
+            # If sites-enabled doesn't exist, check sites-available
+            for p in base.glob("sites-available/*.conf"):
+                if p.is_file() and not p.name.endswith("~") and ".bak" not in p.name:
+                    files.add(str(p))
 
         # 4. http.d/*.conf (Alpine)
         for p in base.glob("http.d/*.conf"):
-            if p.is_file():
-                files.add(str(p))
-
-        # 5. sites-available/* (if sites-enabled is not used)
-        for p in base.glob("sites-available/*.conf"):
-            if p.is_file():
+            if p.is_file() and not p.name.endswith("~") and ".bak" not in p.name:
                 files.add(str(p))
 
         return sorted(list(files))
