@@ -105,3 +105,97 @@ def test_nginx_inspector_scan(tmp_path: Path):
     sn_found, sn_matches = inspector.is_server_name_configured("api.example.com")
     assert sn_found is True
     assert len(sn_matches) == 1
+
+
+def test_nginx_inspector_subfolder_resolution_and_default_d(tmp_path: Path):
+    """Test that passing /etc/nginx/conf.d correctly resolves root /etc/nginx and scans default.d."""
+    nginx_root = tmp_path / "nginx"
+    conf_d = nginx_root / "conf.d"
+    default_d = nginx_root / "default.d"
+    conf_d.mkdir(parents=True, exist_ok=True)
+    default_d.mkdir(parents=True, exist_ok=True)
+
+    main_conf = nginx_root / "nginx.conf"
+    main_conf.write_text(
+        """
+        http {
+            include /etc/nginx/conf.d/*.conf;
+            server {
+                listen 80;
+                server_name localhost;
+                include /etc/nginx/default.d/*.conf;
+            }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    test_conf = conf_d / "my_app.conf"
+    test_conf.write_text(
+        """
+        server {
+            listen 8080;
+            server_name myapp.local;
+            location / {
+                proxy_pass http://127.0.0.1:5000;
+            }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    php_conf = default_d / "php.conf"
+    php_conf.write_text(
+        """
+        location ~ \\.php$ {
+            proxy_pass http://127.0.0.1:9000;
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    # Instantiate with subfolder conf.d
+    inspector = NginxInspector(root_conf_dir=str(conf_d))
+    # It should automatically resolve to nginx_root
+    assert inspector.root_conf_dir == str(nginx_root)
+
+    scan = inspector.scan_all_configs()
+    assert 80 in scan.all_listening_ports
+    assert 8080 in scan.all_listening_ports
+    assert "myapp.local" in scan.all_server_names
+    assert "http://127.0.0.1:5000" in scan.all_proxy_targets
+    assert "http://127.0.0.1:9000" in scan.all_proxy_targets
+
+
+def test_nginx_inspector_parse_nginx_t_output():
+    """Test parsing raw nginx -T output."""
+    raw_nginx_t = """
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events { worker_connections 1024; }
+http {
+    server {
+        listen 80;
+        server_name default.domain.com;
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+        }
+    }
+}
+# configuration file /etc/nginx/conf.d/fastapi.conf:
+server {
+    listen 443 ssl;
+    server_name api.fastapi.io;
+    ssl_certificate /etc/ssl/cert.pem;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+    }
+}
+"""
+    inspector = NginxInspector()
+    vhosts_main = inspector.parse_content(raw_nginx_t, file_path="/etc/nginx/nginx.conf")
+    assert any(80 in vh.listen_ports for vh in vhosts_main)
+    assert any("api.fastapi.io" in vh.server_names for vh in vhosts_main)
+    assert any("http://127.0.0.1:8000" in vh.proxy_passes for vh in vhosts_main)
+

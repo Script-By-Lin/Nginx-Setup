@@ -479,7 +479,7 @@ def status():
     console.print(table)
 
     # Scan and display all active system Nginx configurations & listening ports
-    inspector = NginxInspector(root_conf_dir=os_info.nginx_conf_dir if os.path.exists(os_info.nginx_conf_dir) else "/etc/nginx")
+    inspector = NginxInspector()
     scan = inspector.scan_all_configs()
     console.print()
     print_nginx_inspection_table(scan)
@@ -584,8 +584,7 @@ def remove_project(
 def inspect_configs():
     """Scan /etc/nginx/nginx.conf, conf.d/, sites-enabled/, and detect all active ports."""
     print_banner()
-    os_info = OSDetector().detect()
-    inspector = NginxInspector(root_conf_dir=os_info.nginx_conf_dir if os.path.exists(os_info.nginx_conf_dir) else "/etc/nginx")
+    inspector = NginxInspector()
     scan = inspector.scan_all_configs()
     print_nginx_inspection_table(scan)
 
