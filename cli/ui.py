@@ -218,5 +218,56 @@ def print_unit_preview(content: str, title: str = "Systemd Service Unit Preview"
     console.print(panel)
 
 
+def print_main_menu() -> None:
+    """Display the beautifully formatted and perfectly aligned interactive menu."""
+    console.print("[bold yellow]Please select an action by number:[/bold yellow]\n")
+
+    def render_section(title: str, items: list) -> None:
+        console.print(f"[bold cyan]─── {title} " + "─" * max(2, 60 - len(title)) + "[/bold cyan]")
+        table = Table(box=None, show_header=False, pad_edge=False, padding=(0, 1), show_edge=False)
+        table.add_column(style="bold cyan", justify="right", width=4)
+        table.add_column(justify="center", width=3)
+        table.add_column(style="bold white")
+        for num, icon, text in items:
+            table.add_row(f"{num}.", icon, text)
+        console.print(table)
+
+    items_nginx = [
+        (1, "🚀", "Setup New Reverse Proxy [dim](Interactive Wizard)[/dim]"),
+        (2, "➕", "Add Service / Route [dim](Append route to existing project)[/dim]"),
+        (3, "🔒", "Enable / Upgrade SSL for Project [dim](by Project CODE: SE-001)[/dim]"),
+        (4, "📋", "List Registered Projects & Routes"),
+        (5, "🔍", "Preview Nginx Configuration [dim](Dry-run)[/dim]"),
+        (6, "🧪", "Test Nginx Configuration Syntax [dim](nginx -t)[/dim]"),
+        (7, "🗑️", "Remove / Decommission an Nginx Project"),
+    ]
+
+    items_systemd = [
+        (8, "⚙️", "Create & Auto-Enable Systemd Service [dim](FastAPI, Flask, etc.)[/dim]"),
+        (9, "📑", "List & Monitor Managed Systemd Services"),
+        (10, "▶️", "Control Systemd Service [dim](Start, Stop, Restart, Status, Logs)[/dim]"),
+        (11, "🗑️", "Remove / Decommission a Systemd Service"),
+    ]
+
+    items_diag = [
+        (12, "🔍", "Inspect Active Nginx Virtual Hosts & Ports [dim](nginx.conf & conf.d)[/dim]"),
+        (13, "🩺", "System Status & Diagnostics"),
+    ]
+
+    items_exit = [
+        (14, "❌", "[bold red]Exit[/bold red]"),
+    ]
+
+    render_section("🌐 Nginx Reverse Proxy Management", items_nginx)
+    console.print()
+    render_section("⚙️  Systemd Background Services (Auto-Start on Boot)", items_systemd)
+    console.print()
+    render_section("🩺 Diagnostics & Inspection", items_diag)
+    console.print()
+    render_section("🚪 Exit", items_exit)
+    console.print()
+
+
+
 
 

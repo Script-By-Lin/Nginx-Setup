@@ -12,6 +12,7 @@ from cli.ui import (
     console,
     print_banner,
     print_config_preview,
+    print_main_menu,
     print_nginx_inspection_table,
     print_projects_table,
     print_success_summary,
@@ -1059,29 +1060,7 @@ def interactive_menu():
     """Main interactive menu allowing users to select actions by number."""
     while True:
         print_banner()
-        console.print("[bold yellow]Please select an action by number:[/bold yellow]\n")
-
-        console.print("[bold cyan]─── 🌐 Nginx Reverse Proxy Management ───────────────────────────────[/bold cyan]")
-        console.print("  [bold cyan]1.[/bold cyan]  🚀 [bold]Setup New Reverse Proxy[/bold] [dim](Interactive Wizard)[/dim]")
-        console.print("  [bold cyan]2.[/bold cyan]  ➕ [bold]Add Service / Route[/bold] [dim](Append route to existing project)[/dim]")
-        console.print("  [bold cyan]3.[/bold cyan]  🔒 [bold]Enable / Upgrade SSL for Project[/bold] [dim](by Project CODE: SE-001)[/dim]")
-        console.print("  [bold cyan]4.[/bold cyan]  📋 [bold]List Registered Projects & Routes[/bold]")
-        console.print("  [bold cyan]5.[/bold cyan]  🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
-        console.print("  [bold cyan]6.[/bold cyan]  🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
-        console.print("  [bold cyan]7.[/bold cyan]  🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
-
-        console.print("\n[bold cyan]─── ⚙️  Systemd Background Services (Auto-Start on Boot) ─────────────[/bold cyan]")
-        console.print("  [bold cyan]8.[/bold cyan]  ⚙️  [bold]Create & Auto-Enable Systemd Service[/bold] [dim](FastAPI, Flask, etc.)[/dim]")
-        console.print("  [bold cyan]9.[/bold cyan]  📑 [bold]List & Monitor Managed Systemd Services[/bold]")
-        console.print("  [bold cyan]10.[/bold cyan] ▶️  [bold]Control Systemd Service[/bold] [dim](Start, Stop, Restart, Status, Logs)[/dim]")
-        console.print("  [bold cyan]11.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
-
-        console.print("\n[bold cyan]─── 🩺 Diagnostics & Inspection ─────────────────────────────────────[/bold cyan]")
-        console.print("  [bold cyan]12.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
-        console.print("  [bold cyan]13.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
-
-        console.print("\n[bold cyan]─── 🚪 Exit ─────────────────────────────────────────────────────────[/bold cyan]")
-        console.print("  [bold cyan]14.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
+        print_main_menu()
 
         choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-14]", default="1").strip()
 
