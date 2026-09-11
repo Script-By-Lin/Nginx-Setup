@@ -103,8 +103,13 @@ class StateManager:
                         for name, pdata in data.items():
                             pstate = ProjectState.model_validate(pdata)
                             self.save_project(pstate)
+                # Remove legacy JSON file once migrated so it never resurrects deleted projects
+                legacy_json.unlink(missing_ok=True)
             except Exception:
-                pass
+                try:
+                    legacy_json.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     def _row_to_project_state(self, row: sqlite3.Row) -> ProjectState:
         """Convert a SQLite row into a ProjectState model."""
@@ -261,15 +266,35 @@ class StateManager:
 
     def delete_project(self, identifier: str) -> bool:
         """Remove a project from the SQLite database by name, Project Code, or index."""
+        # Clean up legacy json file if it exists so deleted project cannot be re-imported
+        legacy_json = self.state_dir / "projects.json"
+        if legacy_json.exists():
+            try:
+                legacy_json.unlink(missing_ok=True)
+            except Exception:
+                pass
+
         target = self.get_project(identifier)
         if not target:
-            return False
+            # Attempt direct delete by identifier in case target object lookup differed
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM projects WHERE project_name = ? OR project_code = ? COLLATE NOCASE",
+                    (identifier, identifier),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM projects WHERE project_name = ?", (target.project_name,))
+            cursor.execute(
+                "DELETE FROM projects WHERE project_name = ? OR project_code = ? COLLATE NOCASE",
+                (target.project_name, target.project_code),
+            )
             conn.commit()
             return cursor.rowcount > 0
+
 
     # -------------------------------------------------------------
     # Systemd Background Services Persistence
