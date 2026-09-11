@@ -160,3 +160,55 @@ def print_nginx_inspection_table(scan_result) -> None:
 
     console.print(table)
 
+
+def print_systemd_services_table(services: List[dict]) -> None:
+    """Display managed systemd background services and their live status."""
+    if not services:
+        console.print("[yellow]No managed systemd services found in registry.[/yellow]")
+        return
+
+    table = Table(title="⚙️  Managed Systemd Services (Boot Auto-Start Enabled)", border_style="cyan", show_header=True)
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Service Name", style="bold cyan", no_wrap=True)
+    table.add_column("Description", style="yellow")
+    table.add_column("User", style="magenta")
+    table.add_column("Status", justify="center")
+    table.add_column("Boot Autostart", justify="center")
+    table.add_column("ExecStart Command", style="dim")
+    table.add_column("Unit File Path", style="dim")
+
+    for idx, s in enumerate(services, 1):
+        is_active = s.get("is_active", False)
+        is_enabled = s.get("is_enabled", False)
+        active_state = s.get("active_state", "unknown")
+
+        if is_active:
+            status_str = "[bold green]🟢 Active[/bold green]"
+        elif active_state == "failed":
+            status_str = "[bold red]🔴 Failed[/bold red]"
+        else:
+            status_str = f"[yellow]⚪ {active_state.title()}[/yellow]"
+
+        enabled_str = "[bold green]🟢 Enabled[/bold green]" if is_enabled else "[dim]⚪ Disabled[/dim]"
+
+        name = s.get("service_name", "")
+        if not name.endswith(".service"):
+            unit_display = f"{name}.service"
+        else:
+            unit_display = name
+
+        table.add_row(
+            str(idx),
+            f"[bold cyan]{unit_display}[/bold cyan]",
+            s.get("description", "-"),
+            s.get("user", "root"),
+            status_str,
+            enabled_str,
+            s.get("exec_start", "-"),
+            s.get("service_file_path", f"/etc/systemd/system/{unit_display}"),
+        )
+
+    console.print(table)
+
+
+

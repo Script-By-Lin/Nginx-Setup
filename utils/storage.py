@@ -6,11 +6,11 @@ import re
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional
-from models.server_config import ProjectState, RouteConfig
+from models.server_config import ProjectState, RouteConfig, SystemdServiceState
 
 
 class StateManager:
-    """Manages persistent SQLite registry of configured Nginx projects and routes."""
+    """Manages persistent SQLite registry of configured Nginx projects and systemd services."""
 
     def __init__(self, custom_path: Optional[str] = None):
         if custom_path:
@@ -36,7 +36,7 @@ class StateManager:
         return conn
 
     def _init_db(self) -> None:
-        """Create table and indices if they do not already exist."""
+        """Create tables and indices if they do not already exist."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -64,6 +64,27 @@ class StateManager:
             )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_project_name ON projects (project_name COLLATE NOCASE)"
+            )
+
+            # Systemd background services table
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS systemd_services (
+                    service_name TEXT PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    user TEXT NOT NULL DEFAULT 'nginx',
+                    working_dir TEXT NOT NULL,
+                    exec_start TEXT NOT NULL,
+                    restart TEXT NOT NULL DEFAULT 'always',
+                    service_file_path TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    is_enabled INTEGER NOT NULL DEFAULT 1
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_service_name ON systemd_services (service_name COLLATE NOCASE)"
             )
             conn.commit()
 
@@ -249,3 +270,119 @@ class StateManager:
             cursor.execute("DELETE FROM projects WHERE project_name = ?", (target.project_name,))
             conn.commit()
             return cursor.rowcount > 0
+
+    # -------------------------------------------------------------
+    # Systemd Background Services Persistence
+    # -------------------------------------------------------------
+
+    def _row_to_service_state(self, row: sqlite3.Row) -> SystemdServiceState:
+        """Convert a SQLite row to SystemdServiceState."""
+        return SystemdServiceState(
+            service_name=row["service_name"],
+            description=row["description"],
+            user=row["user"],
+            working_dir=row["working_dir"],
+            exec_start=row["exec_start"],
+            restart=row["restart"],
+            service_file_path=row["service_file_path"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            is_enabled=bool(row["is_enabled"]),
+        )
+
+    def list_services(self) -> List[SystemdServiceState]:
+        """List all managed systemd services ordered by service_name."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM systemd_services ORDER BY service_name ASC")
+            rows = cursor.fetchall()
+            return [self._row_to_service_state(row) for row in rows]
+
+    def get_service(self, identifier: str) -> Optional[SystemdServiceState]:
+        """
+        Get systemd service state by service name (with or without .service) or 1-based index number.
+        """
+        if not identifier:
+            return None
+
+        clean_id = identifier.strip()
+        if clean_id.endswith(".service"):
+            clean_id = clean_id[:-8]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # 1. Match exact service_name
+            cursor.execute("SELECT * FROM systemd_services WHERE service_name = ?", (clean_id,))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_service_state(row)
+
+            # 2. Match case-insensitive service_name
+            cursor.execute("SELECT * FROM systemd_services WHERE service_name = ? COLLATE NOCASE", (clean_id,))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_service_state(row)
+
+        # 3. Match 1-based index number (e.g. '1', '2')
+        if clean_id.isdigit():
+            idx = int(clean_id) - 1
+            all_svcs = self.list_services()
+            if 0 <= idx < len(all_svcs):
+                return all_svcs[idx]
+
+        return None
+
+    def save_service(self, service: SystemdServiceState) -> None:
+        """Save or update a systemd service state in SQLite with ACID safety."""
+        clean_name = service.service_name.strip()
+        if clean_name.endswith(".service"):
+            clean_name = clean_name[:-8]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO systemd_services (
+                    service_name, description, user, working_dir,
+                    exec_start, restart, service_file_path,
+                    created_at, updated_at, is_enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(service_name) DO UPDATE SET
+                    description = excluded.description,
+                    user = excluded.user,
+                    working_dir = excluded.working_dir,
+                    exec_start = excluded.exec_start,
+                    restart = excluded.restart,
+                    service_file_path = excluded.service_file_path,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    is_enabled = excluded.is_enabled
+                """,
+                (
+                    clean_name,
+                    service.description,
+                    service.user,
+                    service.working_dir,
+                    service.exec_start,
+                    service.restart,
+                    service.service_file_path,
+                    service.created_at,
+                    service.updated_at,
+                    1 if service.is_enabled else 0,
+                ),
+            )
+            conn.commit()
+
+    def delete_service(self, identifier: str) -> bool:
+        """Remove a systemd service record from the SQLite database."""
+        target = self.get_service(identifier)
+        if not target:
+            return False
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM systemd_services WHERE service_name = ?", (target.service_name,))
+            conn.commit()
+            return cursor.rowcount > 0
+

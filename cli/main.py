@@ -14,6 +14,7 @@ from cli.ui import (
     print_nginx_inspection_table,
     print_projects_table,
     print_success_summary,
+    print_systemd_services_table,
     step_error,
     step_info,
     step_success,
@@ -26,7 +27,13 @@ from core.nginx_manager import NginxManager
 from core.os_detector import OSDetector
 from core.service_manager import ServiceManager
 from core.ssl_manager import SSLManager
-from models.server_config import ProjectState, RouteConfig, ServerConfig
+from models.server_config import (
+    ProjectState,
+    RouteConfig,
+    ServerConfig,
+    SystemdServiceConfig,
+    SystemdServiceState,
+)
 from utils.dns import DNSHelper
 from utils.storage import StateManager
 from utils.validator import DomainValidator, PathValidator, PortValidator
@@ -748,6 +755,196 @@ def enable_ssl(
         raise typer.Exit(code=1)
 
 
+@app.command(name="service-setup", help="Configure, install, and auto-enable a systemd service unit to run on boot.")
+def service_setup(
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Service unit name (e.g. fastapi)"),
+    description: Optional[str] = typer.Option(None, "--desc", "-d", help="Service description"),
+    user: Optional[str] = typer.Option(None, "--user", "-u", help="Execution user (e.g. nginx, root)"),
+    working_dir: Optional[str] = typer.Option(None, "--working-dir", "-w", help="Working directory path"),
+    exec_start: Optional[str] = typer.Option(None, "--exec", "-e", help="ExecStart startup command"),
+    restart: str = typer.Option("always", "--restart", help="Restart policy (always, on-failure)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate actions without modifying system"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively"),
+):
+    """Interactively generate systemd unit file, enable on boot, and start the service."""
+    dry_run = _normalize_bool(dry_run, default=False)
+    non_interactive = _normalize_bool(non_interactive, default=False)
+    print_banner()
+
+    if not name:
+        if non_interactive:
+            name = "fastapi"
+        else:
+            name = Prompt.ask("[bold cyan]Enter Service Name[/bold cyan] [dim](e.g. fastapi)[/dim]", default="fastapi").strip()
+
+    if not description:
+        if non_interactive:
+            description = "FastAPI App"
+        else:
+            description = Prompt.ask("[bold cyan]Enter Service Description[/bold cyan]", default="FastAPI App").strip()
+
+    if not user:
+        if non_interactive:
+            user = "nginx"
+        else:
+            user = Prompt.ask("[bold cyan]Enter Execution User[/bold cyan] [dim](e.g. nginx, root, www-data)[/dim]", default="nginx").strip()
+
+    if not working_dir:
+        default_dir = os.getcwd()
+        if non_interactive:
+            working_dir = default_dir
+        else:
+            working_dir = Prompt.ask("[bold cyan]Enter Working Directory[/bold cyan]", default=default_dir).strip()
+
+    if not exec_start:
+        if non_interactive:
+            exec_start = "/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000"
+        else:
+            exec_start = Prompt.ask(
+                "[bold cyan]Enter ExecStart Command[/bold cyan]",
+                default="/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000",
+            ).strip()
+
+    config = SystemdServiceConfig(
+        service_name=name,
+        description=description,
+        user=user,
+        working_dir=working_dir,
+        exec_start=exec_start,
+        restart=restart,
+    )
+
+    service_mgr = ServiceManager(dry_run=dry_run)
+    state_mgr = StateManager()
+
+    step_info(f"Generating systemd service unit '/etc/systemd/system/{config.service_name}.service'...")
+    success, logs, unit_path = service_mgr.create_systemd_service(config)
+
+    for log in logs:
+        if "written" in log or "started" in log or "Enabled" in log or "Executed" in log:
+            step_success(log)
+        elif "Warning" in log:
+            step_warn(log)
+        else:
+            step_info(log)
+
+    if success or dry_run:
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state_obj = SystemdServiceState(
+            service_name=config.service_name,
+            description=config.description,
+            user=config.user,
+            working_dir=config.working_dir,
+            exec_start=config.exec_start,
+            restart=config.restart,
+            service_file_path=unit_path,
+            created_at=now_str,
+            updated_at=now_str,
+            is_enabled=True,
+            is_active=True,
+        )
+        state_mgr.save_service(state_obj)
+        step_success(f"Systemd service [bold green]{config.service_name}.service[/bold green] successfully deployed & enabled for boot autostart.")
+    else:
+        step_error(f"Failed to configure systemd service unit {config.service_name}.service")
+
+
+@app.command(name="service-list", help="List and inspect all managed systemd services and their live status.")
+def service_list():
+    """List all managed systemd background services and their live status."""
+    print_banner()
+    state_mgr = StateManager()
+    service_mgr = ServiceManager()
+
+    services = state_mgr.list_services()
+    if not services:
+        console.print("[yellow]No managed systemd services found in registry.[/yellow]")
+        return
+
+    enriched = []
+    for s in services:
+        live = service_mgr.get_systemd_service_status(s.service_name)
+        enriched.append({
+            "service_name": s.service_name,
+            "description": s.description,
+            "user": s.user,
+            "working_dir": s.working_dir,
+            "exec_start": s.exec_start,
+            "is_active": live.get("is_active", False),
+            "is_enabled": live.get("is_enabled", False),
+            "active_state": live.get("active_state", "unknown"),
+            "service_file_path": s.service_file_path,
+        })
+
+    print_systemd_services_table(enriched)
+
+
+@app.command(name="service-remove", help="Stop, disable, and decommission a systemd service unit.")
+def service_remove(
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service name or index to remove"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate actions without modifying system files"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", "-y", help="Run non-interactively"),
+):
+    """Stop, disable boot autostart, delete unit file, and daemon-reload a systemd service."""
+    dry_run = _normalize_bool(dry_run, default=False)
+    non_interactive = _normalize_bool(non_interactive, default=False)
+    print_banner()
+
+    state_mgr = StateManager()
+    services = state_mgr.list_services()
+
+    if not service:
+        if not services:
+            step_warn("No systemd services found in registry to remove.")
+            return
+        console.print("\n[bold cyan]Select Systemd Service to Remove:[/bold cyan]")
+        for idx, s in enumerate(services, 1):
+            console.print(f"  [bold cyan]{idx}.[/bold cyan] [bold white]{s.service_name}.service[/bold white] ({s.description}) - [dim]{s.service_file_path}[/dim]")
+        if non_interactive:
+            service = services[0].service_name
+        else:
+            service = Prompt.ask("Enter Service Name or Number to remove").strip()
+
+    target_svc = state_mgr.get_service(service)
+    target_name = target_svc.service_name if target_svc else service
+
+    if not non_interactive:
+        if not Confirm.ask(f"[bold red]Are you sure you want to stop, disable, and remove service '{target_name}.service'?[/bold red]", default=False):
+            console.print("[yellow]Service removal cancelled.[/yellow]")
+            return
+
+    step_info(f"Decommissioning service '{target_name}.service'...")
+    service_mgr = ServiceManager(dry_run=dry_run)
+    ok, logs = service_mgr.remove_systemd_service(target_name)
+
+    for log in logs:
+        if "Stopped" in log or "Disabled" in log or "Removed" in log or "Executed" in log:
+            step_success(log)
+        elif "Warning" in log:
+            step_warn(log)
+        else:
+            step_info(log)
+
+    state_mgr.delete_service(target_name)
+    step_success(f"Systemd service '{target_name}.service' removed, boot autostart disabled, and daemon reloaded.")
+
+
+@app.command(name="service-control", help="Control a managed systemd service (start, stop, restart, status, logs).")
+def service_control(
+    service: str = typer.Option(..., "--service", "-s", help="Service name"),
+    action: str = typer.Option(..., "--action", "-a", help="Action: start, stop, restart, status, logs"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate actions without modifying system"),
+):
+    """Perform lifecycle actions on a managed systemd unit."""
+    dry_run = _normalize_bool(dry_run, default=False)
+    service_mgr = ServiceManager(dry_run=dry_run)
+    ok, out = service_mgr.control_systemd_service(service, action)
+    if ok:
+        console.print(f"[bold green]{out}[/bold green]")
+    else:
+        console.print(f"[bold red]{out}[/bold red]")
+
+
 @app.command(name="menu", help="Launch interactive numbered menu.")
 def menu():
     """Launch the interactive numbered menu."""
@@ -763,14 +960,17 @@ def interactive_menu():
         console.print("  [bold cyan]2.[/bold cyan] ➕ [bold]Add Service / Route[/bold] [dim](Append route to existing project)[/dim]")
         console.print("  [bold cyan]3.[/bold cyan] 🔒 [bold]Enable / Upgrade SSL for Project[/bold] [dim](by Project CODE: SE-001)[/dim]")
         console.print("  [bold cyan]4.[/bold cyan] 📋 [bold]List Registered Projects & Routes[/bold]")
-        console.print("  [bold cyan]5.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
-        console.print("  [bold cyan]6.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
-        console.print("  [bold cyan]7.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
-        console.print("  [bold cyan]8.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
-        console.print("  [bold cyan]9.[/bold cyan] 🗑️  [bold]Remove / Decommission a Project[/bold]")
-        console.print("  [bold cyan]10.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
+        console.print("  [bold cyan]5.[/bold cyan] ⚙️  [bold]Create & Auto-Enable Systemd Service[/bold] [dim](Start on Boot / Reboot)[/dim]")
+        console.print("  [bold cyan]6.[/bold cyan] 📑 [bold]List & Monitor Managed Systemd Services[/bold]")
+        console.print("  [bold cyan]7.[/bold cyan] 🗑️  [bold]Remove / Decommission a Systemd Service[/bold]")
+        console.print("  [bold cyan]8.[/bold cyan] 🔍 [bold]Inspect Active Nginx Virtual Hosts & Ports[/bold] [dim](nginx.conf & conf.d)[/dim]")
+        console.print("  [bold cyan]9.[/bold cyan] 🩺 [bold]System Status & Diagnostics[/bold]")
+        console.print("  [bold cyan]10.[/bold cyan] 🔍 [bold]Preview Nginx Configuration[/bold] [dim](Dry-run)[/dim]")
+        console.print("  [bold cyan]11.[/bold cyan] 🧪 [bold]Test Nginx Configuration Syntax[/bold] [dim](nginx -t)[/dim]")
+        console.print("  [bold cyan]12.[/bold cyan] 🗑️  [bold]Remove / Decommission an Nginx Project[/bold]")
+        console.print("  [bold cyan]13.[/bold cyan] ❌ [bold red]Exit[/bold red]\n")
 
-        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-10]", default="1").strip()
+        choice = Prompt.ask("[bold green]Enter option number[/bold green] [1-13]", default="1").strip()
 
         if choice == "1":
             setup(dry_run=False, non_interactive=False)
@@ -808,14 +1008,26 @@ def interactive_menu():
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "5":
-            status()
+            service_setup(dry_run=False, non_interactive=False)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "6":
-            inspect_configs()
+            service_list()
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
         elif choice == "7":
+            service_remove(dry_run=False, non_interactive=False)
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                break
+        elif choice == "8":
+            inspect_configs()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                break
+        elif choice == "9":
+            status()
+            if not Confirm.ask("\nReturn to main menu?", default=True):
+                break
+        elif choice == "10":
             proj = Prompt.ask("Project name", default="demo-app").strip()
             dom = Prompt.ask("Domain (optional, leave empty for IP)", default="").strip() or None
             pt = IntPrompt.ask("Backend port", default=8000)
@@ -824,11 +1036,11 @@ def interactive_menu():
             preview(project=proj, domain=dom, port=pt, route=rt, ssl=use_ssl)
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "8":
+        elif choice == "11":
             test_config()
             if not Confirm.ask("\nReturn to main menu?", default=True):
                 break
-        elif choice == "9":
+        elif choice == "12":
             state_mgr = StateManager()
             projects = state_mgr.list_projects()
             if not projects:
@@ -846,11 +1058,11 @@ def interactive_menu():
             if Confirm.ask(f"[bold red]Are you sure you want to remove project '{target_rem}'?[/bold red]", default=False):
                 remove_project(project=target_rem, dry_run=False)
             break
-        elif choice in ("10", "0", "exit", "q", "quit"):
+        elif choice in ("13", "0", "exit", "q", "quit"):
             console.print("[yellow]Goodbye![/yellow]")
             break
         else:
-            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 10.")
+            step_error(f"Invalid option '{choice}'. Please enter a number from 1 to 13.")
 
 
 @app.callback(invoke_without_command=True)
@@ -866,3 +1078,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

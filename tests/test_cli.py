@@ -162,10 +162,48 @@ def test_cli_enable_ssl_by_project_code_dry_run():
         assert "SSL successfully enabled for Project CODE" in result.stdout or "Deployment & Configuration Succeeded" in result.stdout
 
 
+def test_cli_service_lifecycle():
+    # 1. Setup service
+    setup_res = runner.invoke(
+        app,
+        [
+            "service-setup",
+            "--name", "fastapi-unit",
+            "--desc", "FastAPI App",
+            "--user", "nginx",
+            "--working-dir", "/home/bit/app",
+            "--exec", "/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000",
+            "--dry-run",
+            "--non-interactive",
+        ],
+    )
+    assert setup_res.exit_code == 0
+    assert "successfully deployed" in setup_res.stdout or "fastapi-unit.service" in setup_res.stdout
+
+    # 2. List services
+    list_res = runner.invoke(app, ["service-list"])
+    assert list_res.exit_code == 0
+    assert "fastapi-unit" in list_res.stdout
+
+    # 3. Remove service
+    rem_res = runner.invoke(
+        app,
+        [
+            "service-remove",
+            "--service", "fastapi-unit",
+            "--dry-run",
+            "--non-interactive",
+        ],
+    )
+    assert rem_res.exit_code == 0
+    assert "removed" in rem_res.stdout or "decommissioned" in rem_res.stdout
+
+
 def test_cli_menu_exit():
-    result = runner.invoke(app, ["menu"], input="10\n")
+    result = runner.invoke(app, ["menu"], input="13\n")
     assert result.exit_code == 0
     assert "Please select an action by number" in result.stdout
     assert "Goodbye!" in result.stdout
+
 
 

@@ -145,3 +145,41 @@ class ProjectState(BaseModel):
     ssl_email: Optional[str] = None
     listen_port: int = 80
     ssl_port: int = 443
+
+
+class SystemdServiceConfig(BaseModel):
+    """Configuration for generating a systemd service unit file."""
+    service_name: str = Field(..., description="Service unit name without .service extension, e.g. fastapi")
+    description: str = Field(default="FastAPI App", description="Service Description")
+    user: str = Field(default="nginx", description="Execution user, e.g. nginx, www-data, root")
+    group: Optional[str] = Field(default=None, description="Execution group")
+    working_dir: str = Field(..., description="Application working directory")
+    exec_start: str = Field(..., description="Full startup command, e.g. /usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000")
+    restart: str = Field(default="always", description="Restart policy: always, on-failure, no")
+    restart_sec: int = Field(default=3, description="RestartSec timeout")
+    environment: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
+    service_file_path: Optional[str] = None
+
+    @field_validator("service_name")
+    @classmethod
+    def clean_service_name(cls, v: str) -> str:
+        v = v.strip()
+        if v.endswith(".service"):
+            v = v[:-8]
+        return v
+
+
+class SystemdServiceState(BaseModel):
+    """Persisted state and metadata for managed systemd services."""
+    service_name: str
+    description: str
+    user: str
+    working_dir: str
+    exec_start: str
+    restart: str = "always"
+    service_file_path: str
+    created_at: str
+    updated_at: str
+    is_enabled: bool = True
+    is_active: bool = False
+

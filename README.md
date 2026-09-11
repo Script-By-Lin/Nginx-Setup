@@ -109,14 +109,17 @@ Please select an action by number:
   2. ➕ Add Service / Route (Append route to existing project)
   3. 🔒 Enable / Upgrade SSL for Project (by Project CODE: SE-001)
   4. 📋 List Registered Projects & Routes
-  5. 🩺 System Status & Diagnostics
-  6. 🔍 Inspect Active Nginx Virtual Hosts & Ports (nginx.conf & conf.d)
-  7. 🔍 Preview Nginx Configuration (Dry-run)
-  8. 🧪 Test Nginx Configuration Syntax (nginx -t)
-  9. 🗑️  Remove / Decommission a Project
-  10. ❌ Exit
+  5. ⚙️  Create & Auto-Enable Systemd Service (Start on Boot / Reboot)
+  6. 📑 List & Monitor Managed Systemd Services
+  7. 🗑️  Remove / Decommission a Systemd Service
+  8. 🔍 Inspect Active Nginx Virtual Hosts & Ports (nginx.conf & conf.d)
+  9. 🩺 System Status & Diagnostics
+  10. 🔍 Preview Nginx Configuration (Dry-run)
+  11. 🧪 Test Nginx Configuration Syntax (nginx -t)
+  12. 🗑️  Remove / Decommission an Nginx Project
+  13. ❌ Exit
 
-Enter option number [1-10]: 6
+Enter option number [1-13]: 1
 ```
 
 ---
@@ -187,7 +190,70 @@ sudo ./nginx-cli enable-ssl --project SE-001 --self-signed --non-interactive
 
 ---
 
-### 4. List Registered Projects (`list`)
+### 4. Systemd Background Service Automation & Boot Autostart (`service-setup`)
+Automatically generates a production systemd unit file (e.g. `/etc/systemd/system/fastapi.service`), runs `systemctl daemon-reload`, enables the unit so it starts on every system boot/reboot, and starts the service:
+
+```bash
+# Interactive mode (prompts for name, description, user, working dir, execstart)
+sudo ./nginx-cli service-setup
+
+# Non-interactive / scripted mode
+sudo ./nginx-cli service-setup \
+  --name fastapi \
+  --desc "FastAPI App" \
+  --user nginx \
+  --working-dir /home/bit/app \
+  --exec "/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000" \
+  --non-interactive
+```
+
+Generated unit file at `/etc/systemd/system/fastapi.service`:
+```ini
+[Unit]
+Description=FastAPI App
+After=network.target
+
+[Service]
+User=nginx
+WorkingDirectory=/home/bit/app
+ExecStart=/usr/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+### 5. List Managed Systemd Services (`service-list`)
+View all registered backend services with live status (Active, Inactive, Failed), boot autostart status (Enabled), and unit file paths:
+```bash
+./nginx-cli service-list
+```
+
+---
+
+### 6. Remove / Decommission Systemd Service (`service-remove`)
+Safely stops the service, disables boot autostart, removes the unit file with backup, runs `systemctl daemon-reload`, resets failed states, and cleans up the SQLite registry:
+```bash
+sudo ./nginx-cli service-remove --service fastapi
+```
+
+---
+
+### 7. Control Managed Systemd Services (`service-control`)
+Start, stop, restart, check status, or view live journal logs for any service:
+```bash
+sudo ./nginx-cli service-control --service fastapi --action restart
+sudo ./nginx-cli service-control --service fastapi --action logs
+```
+
+---
+
+### 8. List Registered Projects (`list`)
 View all configured projects with their **Project CODE** (`SE-001`, `SE-002`, ...), active domains, routes, and SSL statuses:
 ```bash
 ./nginx-cli list
@@ -195,7 +261,7 @@ View all configured projects with their **Project CODE** (`SE-001`, `SE-002`, ..
 
 ---
 
-### 5. System Diagnostics & Status (`status`)
+### 9. System Diagnostics & Status (`status`)
 Inspect OS distribution, package manager, Nginx systemd service status, firewall status, and public IP:
 ```bash
 ./nginx-cli status
@@ -203,7 +269,7 @@ Inspect OS distribution, package manager, Nginx systemd service status, firewall
 
 ---
 
-### 6. Inspect Active Nginx Virtual Hosts & Ports (`inspect`)
+### 10. Inspect Active Nginx Virtual Hosts & Ports (`inspect`)
 Deep scan `/etc/nginx/nginx.conf` and `conf.d/*.conf`, detecting all listening ports, server names, and upstream proxy routes:
 ```bash
 ./nginx-cli inspect
@@ -211,7 +277,7 @@ Deep scan `/etc/nginx/nginx.conf` and `conf.d/*.conf`, detecting all listening p
 
 ---
 
-### 7. Preview Configuration (`preview`)
+### 11. Preview Configuration (`preview`)
 Preview generated Nginx configurations with syntax highlighting without touching `/etc/nginx`:
 ```bash
 ./nginx-cli preview --project demo --domain api.demo.com --port 8000 --route / --ssl
@@ -219,7 +285,7 @@ Preview generated Nginx configurations with syntax highlighting without touching
 
 ---
 
-### 8. Test Nginx Syntax (`test-config`)
+### 12. Test Nginx Syntax (`test-config`)
 Run `nginx -t` validation with structured output:
 ```bash
 ./nginx-cli test-config
@@ -227,7 +293,7 @@ Run `nginx -t` validation with structured output:
 
 ---
 
-### 9. Remove Project (`remove`)
+### 13. Remove Nginx Project (`remove`)
 Safely decommission a virtual host by **Project CODE** (e.g. `SE-001`) or project name. Deletes all configuration files, cleans up symlinks, reloads Nginx, and completely removes the entry from the SQLite database:
 ```bash
 # Remove by Project CODE

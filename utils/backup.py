@@ -132,3 +132,37 @@ class BackupManager:
         ]
         backups.sort(reverse=True)
         return backups
+
+    def remove_file(self, target_path: str, create_backup: bool = True) -> tuple[bool, str]:
+        """
+        Safely removes target_path with optional backup and privilege escalation if needed.
+        """
+        target = Path(target_path)
+        if not target.exists() and not self.dry_run:
+            return True, f"File {target_path} does not exist."
+
+        backup_path = None
+        if create_backup:
+            try:
+                backup_path = self.create_backup(target_path)
+            except Exception:
+                pass
+
+        if self.dry_run:
+            return True, f"Simulated removal of {target_path}"
+
+        if is_root() or self._is_writable(target_path):
+            if target.is_symlink() or target.is_file():
+                target.unlink(missing_ok=True)
+            elif target.is_dir():
+                shutil.rmtree(target)
+        else:
+            res = run_command(["rm", "-rf", target_path], sudo=True)
+            if not res.success:
+                return False, f"Failed to remove {target_path}: {res.stderr}"
+
+        msg = f"Removed {target_path}"
+        if backup_path:
+            msg += f" (Backup: {backup_path})"
+        return True, msg
+
